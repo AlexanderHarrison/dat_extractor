@@ -536,6 +536,10 @@ impl<'a> Stream<'a> {
         self.cursor.set(new_cursor);
     }
 
+    pub fn finished(&self) -> bool {
+        self.cursor() == self.data.len()
+    }
+
     pub fn cursor(&self) -> usize {
         self.cursor.get()
     }
@@ -544,6 +548,12 @@ impl<'a> Stream<'a> {
         let bytes: [u8; 4] = self.data[self.cursor()..self.cursor() + 4].try_into().unwrap();
         self.bump_cursor(4);
         i32::from_be_bytes(bytes)
+    }
+
+    pub fn read_i16(&self) -> i16 {
+        let bytes: [u8; 2] = self.data[self.cursor()..self.cursor() + 2].try_into().unwrap();
+        self.bump_cursor(2);
+        i16::from_be_bytes(bytes)
     }
 
     pub fn read_chars(&self, n: usize) -> &'a str {

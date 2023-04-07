@@ -42,7 +42,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile) -> Option<FighterData> {
 }
 
 fn parse_fighter_action(hsd_struct: HSDStruct) -> Option<FighterAction> {
-    let name = if let Some(str_buffer) = hsd_struct.get_buffer(0x00) {
+    let name = if let Some(str_buffer) = hsd_struct.try_get_buffer(0x00) {
         Some(crate::parse_string(str_buffer)?.to_string().into_boxed_str())
     } else {
         None

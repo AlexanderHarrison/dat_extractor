@@ -33,7 +33,7 @@ impl<'a> HSDStruct<'a> {
         }
     }
 
-    pub fn get_embedded_struct<'b: 'a>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {
+    pub fn get_embedded_struct<'b>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {
         let data = self.get_bytes(loc as usize, len as usize);
 
         let mut references = HashMap::new();
@@ -47,7 +47,11 @@ impl<'a> HSDStruct<'a> {
         HSDStruct::new(data, references)
     }
 
-    pub fn get_buffer<'b>(&'b self, loc: usize) -> Option<&'a [u8]> {
+    pub fn get_buffer<'b>(&'b self, loc: usize) -> &'a [u8] {
+        self.get_reference(loc).data
+    }
+
+    pub fn try_get_buffer<'b>(&'b self, loc: usize) -> Option<&'a [u8]> {
         self.try_get_reference(loc).map(|s| s.data)
     }
 
@@ -66,7 +70,7 @@ impl<'a> HSDStruct<'a> {
         self.references.borrow().len()
     }
 
-    pub fn get_bytes(&self, location: usize, len: usize) -> &[u8] {
+    pub fn get_bytes<'b>(&'b self, location: usize, len: usize) -> &'a [u8] {
         &self.data[location as usize..location as usize + len as usize]
     }
 
