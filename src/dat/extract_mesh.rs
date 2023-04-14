@@ -17,7 +17,9 @@ pub fn extract_scene<'a, 'b>(file: &'a HSDRawFile<'b>) -> Result<Scene<'a, 'b>, 
         .map(|jobj| Bone::new(jobj))
         .collect::<Vec<_>>();
 
-    let skeleton = Skeleton { root_bones };
+    let skeleton = Skeleton { 
+        root_bones
+    };
 
     //    let parent = jobj_to_bone.get(jobj).cloned();
 

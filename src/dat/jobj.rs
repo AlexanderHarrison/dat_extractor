@@ -62,90 +62,91 @@ impl<'a> DOBJ<'a> {
     }
 
     pub fn decode_vertices<'b>(&'b self) -> Vec<[f32; 3]> {
-        let pobj = self.get_pobj();
-        let attributes = pobj.get_attributes();
-
-        let buffer = self.hsd_struct.get_buffer(0x10);
-
-        let reader = crate::dat::Stream::new(buffer);
-        let mut vertices = Vec::new();
-
-        while !reader.finished() {
-            let b = reader.read_byte();
-            assert!(b != 0); // check GX_PrimitiveGroup.Read()
-            let primitive = PrimitiveType::from_u8(b).unwrap();
-            let count = reader.read_i16() as u16;
-
-            for _ in 0..count {
-                let mut vertex = [0f32; 3];
-
-                for attr in attributes.iter() {
-                    if attr.name == AttributeName::GX_VA_NULL {
-                        continue;
-                    }
-
-                    let index = match attr.typ {
-                        // check GX_PrimitiveGroup.Read
-                        AttributeType::GX_DIRECT => todo!(),
-
-                        AttributeType::GX_INDEX8 => reader.read_byte() as usize,
-                        AttributeType::GX_INDEX16 => reader.read_i16() as usize,
-                        AttributeType::GX_NONE => continue, // maybe?????
-                    };
-
-                    if attr.typ != AttributeType::GX_DIRECT {
-                        let data = attr.get_decoded_data_at(index);
-
-                        match attr.name {
-                            AttributeName::GX_VA_POS => {
-                                // shapeset?? check GX_VertexAccessor:111
-
-                                match data.len() {
-                                    0 => vertex[0] = data[0],
-                                    1 => {
-                                        vertex[0] = data[0];
-                                        vertex[1] = data[1];
-                                    }
-                                    2 => {
-                                        vertex[0] = data[0];
-                                        vertex[1] = data[1];
-                                        vertex[2] = data[2];
-                                    }
-                                    _ => {}
-                                }
-                            },
-                            _ => (), // TODO
-                        }
-                    } else {
-                        // TODO
-                    }
-                }
-
-                vertices.push(vertex);
-            }
+        let mut v = Vec::new();
+        for pobj in self.get_pobj().siblings() {
+            v.extend(pobj.decode_vertices());
         }
 
-
-        vertices
+        v
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct Attribute {
+#[derive(Clone, Debug)]
+pub struct Attribute<'a> {
     pub name: AttributeName,
     pub typ: AttributeType,
+    pub hsd_struct: HSDStruct<'a>,
 }
 
-impl Attribute {
-    pub fn new(hsd_struct: HSDStruct) -> Self {
+impl<'a> Attribute<'a> {
+    pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
         Self { 
             name: AttributeName::from_u8(hsd_struct.get_i32(0x00) as u8),
             typ: AttributeType::from_u8(hsd_struct.get_i32(0x04) as u8),
+            hsd_struct,
         }
     }
     
-    pub fn get_decoded_data_at(&self, loc: usize) -> [f32; 4] {
-        todo!()
+    pub fn get_decoded_data_at(&self, loc: usize) -> Vec<f32> {
+        if self.name == AttributeName::GX_VA_CLR0 || self.name == AttributeName::GX_VA_CLR1 {
+            todo!();
+            //return GetColorAt(index);
+        }
+
+        let comp_type = self.hsd_struct.get_i32(0x0C);
+        let stride = self.hsd_struct.get_i16(0x12) as usize;
+        let offset = stride * loc;
+
+        let buffer = self.hsd_struct.get_reference(0x14); // buffer same
+
+        let mut data = Vec::new();
+
+        match comp_type {
+            0 => { // UInt8
+                for i in 0..stride {
+                    let f = buffer.get_i8(offset + i) as u8 as f32; 
+                    data.push(f);
+                }
+            } 
+            1 => { // Int8
+                for i in 0..stride {
+                    let f = buffer.get_i8(offset + i) as f32; 
+                    data.push(f);
+                }
+            }
+            2 => { // UInt16,
+                for i in 0..(stride / 2) {
+                    let f = buffer.get_i16(offset + i*2) as u16 as f32; 
+                    data.push(f);
+                    println!("float {}", f);
+                }
+            }
+            3 => { // Int16 ,
+                for i in 0..(stride / 2) {
+                    let f = buffer.get_i16(offset + i*2) as f32; 
+                    data.push(f);
+                }
+            }
+            4 => { // Float ,
+                for i in 0..(stride / 4) {
+                    let f = buffer.get_f32(offset + i*4);
+                    data.push(f);
+                }
+            }
+                    
+            //5 => {} // Unused,
+            _ => panic!("invalid comp type"),
+        }
+
+
+        let scale = self.hsd_struct.get_i8(0x10) as usize;
+        for f in data.iter_mut() {
+            *f /= (1 << scale) as f32
+        }
+
+        //println!("loc {}", data[0]);
+
+        data
     }
 }
 
@@ -176,16 +177,20 @@ impl<'a> POBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(|s| POBJ::new(s))
     }
 
-    pub fn get_attributes<'b>(&'b self) -> Vec<Attribute> {
+    pub fn get_attributes<'b>(&'b self) -> Vec<Attribute<'a>> {
         let attr_buf = self.hsd_struct.get_reference(0x08);
         let shape_set = self.check_flag(POBJFlag::ShapeAnim);
         assert!(!shape_set); // just a hopeful guess. check ToGXAttributes in HSD_POBJ
     
         let count = attr_buf.len() / 0x18;
-        let mut attributes = Vec::new();
+        let mut attributes = Vec::with_capacity(count);
         for i in 0..count {
             let attr = Attribute::new(attr_buf.get_embedded_struct(i * 0x18, 0x18));
+            let name = attr.name;
             attributes.push(attr);
+            if name == AttributeName::GX_VA_NULL {
+                break;
+            }
         }
 
         attributes
@@ -196,6 +201,79 @@ impl<'a> POBJ<'a> {
         (flags & flag as u32) != 0
     }
 
+    /// does not decode siblings
+    pub fn decode_vertices<'b>(&'b self) -> Vec<[f32; 3]> {
+        //println!("decode");
+        let attributes = self.get_attributes();
+        //println!("attrlen {}", attributes.len());
+
+        let buffer = self.hsd_struct.get_buffer(0x10);
+
+        let reader = crate::dat::Stream::new(buffer);
+        let mut vertices = Vec::new();
+
+        while !reader.finished() {
+            let b = reader.read_byte();
+            if b == 0 { break }
+            //println!("pgroup");
+
+            //let primitive = PrimitiveType::from_u8(b).unwrap();
+            let count = reader.read_i16() as u16;
+
+            for _ in 0..count {
+                let mut vertex = [0f32; 3];
+
+                for attr in attributes.iter() {
+                    if attr.name == AttributeName::GX_VA_NULL {
+                        continue;
+                    }
+
+                    let index = match attr.typ {
+                        // check GX_PrimitiveGroup.Read
+                        AttributeType::GX_DIRECT => {
+                            if attr.name == AttributeName::GX_VA_CLR0 {
+                                todo!();
+                            } else if attr.name == AttributeName::GX_VA_CLR1 {
+                                todo!();
+                            } else { 
+                                reader.read_byte() as usize
+                            }
+                        }
+
+                        AttributeType::GX_INDEX8 => reader.read_byte() as usize,
+                        AttributeType::GX_INDEX16 => reader.read_i16() as usize,
+                        AttributeType::GX_NONE => todo!(), // unmatched - see GX_PrimitiveGroup:45
+                    };
+
+                    if attr.typ != AttributeType::GX_DIRECT {
+                        let data = attr.get_decoded_data_at(index);
+
+                        match attr.name {
+                            AttributeName::GX_VA_POS => {
+                                println!("{}, {}, {}", data[0], data[1], data[2]);
+                                //println!("Direct!"); // match
+                                //println!("data {:?}", data);
+                                                     
+                                // shapeset?? check GX_VertexAccessor:111
+
+                                vertex[0] = data[0];
+                                vertex[1] = data[1];
+                                vertex[2] = data[2];
+                            },
+                            _ => (), // TODO
+                        }
+                    } else {
+                        // TODO
+                    }
+                }
+
+                vertices.push(vertex);
+           }
+        }
+
+
+        vertices
+    }
 }
 
 impl<'a> JOBJ<'a> {
@@ -222,7 +300,7 @@ impl<'a> JOBJ<'a> {
         if self.check_flag(JOBJFlag::Spline) || self.check_flag(JOBJFlag::PTCL) {
             None
         } else {
-            Some(DOBJ::new(self.hsd_struct.get_reference(0x10)))
+            self.hsd_struct.try_get_reference(0x10).map(|s| DOBJ::new(s))
         }
     }
 
@@ -358,23 +436,23 @@ impl AttributeName {
             07 => Self::GX_VA_TEX6MTXIDX,  
             08 => Self::GX_VA_TEX7MTXIDX,  
             09 => Self::GX_VA_POS,
-            11 => Self::GX_VA_NRM,         
-            12 => Self::GX_VA_CLR0,        
-            13 => Self::GX_VA_CLR1,        
-            14 => Self::GX_VA_TEX0,        
-            15 => Self::GX_VA_TEX1,        
-            16 => Self::GX_VA_TEX2,        
-            17 => Self::GX_VA_TEX3,        
-            18 => Self::GX_VA_TEX4,        
-            19 => Self::GX_VA_TEX5,        
-            20 => Self::GX_VA_TEX6,        
-            21 => Self::GX_VA_TEX7,        
-            22 => Self::GX_POS_MTX_ARRAY,  
-            23 => Self::GX_NRM_MTX_ARRAY,  
-            24 => Self::GX_TEX_MTX_ARRAY,  
-            25 => Self::GX_LIGHT_ARRAY,    
-            26 => Self::GX_VA_NBT,         
-            27 => Self::GX_VA_MAX_ATTR,    
+            10 => Self::GX_VA_NRM,         
+            11 => Self::GX_VA_CLR0,        
+            12 => Self::GX_VA_CLR1,        
+            13 => Self::GX_VA_TEX0,        
+            14 => Self::GX_VA_TEX1,        
+            15 => Self::GX_VA_TEX2,        
+            16 => Self::GX_VA_TEX3,        
+            17 => Self::GX_VA_TEX4,        
+            18 => Self::GX_VA_TEX5,        
+            19 => Self::GX_VA_TEX6,        
+            20 => Self::GX_VA_TEX7,        
+            21 => Self::GX_POS_MTX_ARRAY,  
+            22 => Self::GX_NRM_MTX_ARRAY,  
+            23 => Self::GX_TEX_MTX_ARRAY,  
+            24 => Self::GX_LIGHT_ARRAY,    
+            25 => Self::GX_VA_NBT,         
+            26 => Self::GX_VA_MAX_ATTR,    
             0xff => Self::GX_VA_NULL,
             _ => panic!("Unknown attribute")
         }

@@ -90,10 +90,23 @@ impl<'a> HSDStruct<'a> {
         self.references.borrow().keys().copied().max()
     }
 
+    pub fn get_i8(&self, loc: usize) -> i8 {
+        self.data[loc] as i8
+    }
+
+    pub fn get_i16(&self, loc: usize) -> i16 {
+        let bytes: [u8; 2] = self.data[loc..loc+2].try_into().unwrap();
+        i16::from_be_bytes(bytes)
+    }
+
     pub fn get_i32(&self, loc: usize) -> i32 {
-        let loc = loc as usize;
         let bytes: [u8; 4] = self.data[loc..loc+4].try_into().unwrap();
         i32::from_be_bytes(bytes)
+    }
+
+    pub fn get_f32(&self, loc: usize) -> f32 {
+        let bytes: [u8; 4] = self.data[loc..loc+4].try_into().unwrap();
+        f32::from_be_bytes(bytes)
     }
 }
 
