@@ -1,4 +1,5 @@
-use crate::dat::{HSDRawFile, JOBJ};
+use crate::dat::{HSDRawFile, JOBJ, extract_anims::Animation};
+use glam::f32::Mat4;
 
 #[derive(Debug)]
 pub enum ExtractMeshError {
@@ -6,27 +7,20 @@ pub enum ExtractMeshError {
 }
 
 pub fn extract_scene<'a, 'b>(file: &'a HSDRawFile<'b>) -> Result<Scene<'a, 'b>, ExtractMeshError> {
-    //let mut child_to_parent = HashMap::new();
-    //let mut jobj_to_bone = HashMap::new();
-
     let root_jobj = root_jobj(file).ok_or(ExtractMeshError::InvalidDatFile)?;
-    //for jobj in root_jobj.get_all_jobjs() {
 
-    let root_bones = root_jobj
-        .siblings()
-        .map(|jobj| Bone::new(jobj))
-        .collect::<Vec<_>>();
+    let mut bones = Vec::new();
+    let mut bone_tree_roots = Vec::new();
+
+    for jobj in root_jobj.siblings() {
+        bone_tree_roots.push(BoneTree::new(jobj, &mut bones));
+    }
 
     let skeleton = Skeleton { 
-        root_bones
+        bone_tree_roots: bone_tree_roots.into_boxed_slice(),
+        bones: bones.into_boxed_slice(),
     };
 
-    //    let parent = jobj_to_bone.get(jobj).cloned();
-
-    //    let bone = Bone::new(jobj.clone());
-    //    jobj_to_bone.insert(jobj.clone(), bone);
-    //}
-    
     Ok(Scene {
         file,
         skeleton,
@@ -45,37 +39,68 @@ fn root_jobj<'a, 'b>(file: &'a HSDRawFile<'b>) -> Option<JOBJ<'b>> {
 
 pub struct Scene<'a, 'b> {
     pub file: &'a HSDRawFile<'b>,
-    pub skeleton: Skeleton<'b>,
+    pub skeleton: Skeleton,
 }
 
-pub struct Skeleton<'a> {
-    pub root_bones: Vec<Bone<'a>>,
+pub struct Skeleton {
+    pub bone_tree_roots: Box<[BoneTree]>,
+    pub bones: Box<[Bone]>,
 }
 
-pub struct Bone<'a> {
-    pub jobj: JOBJ<'a>,
-    pub children: Vec<Bone<'a>>,
+pub struct Mesh {
+    pub vertices: Box<[[f32; 3]]>,
 }
 
-impl<'a> Bone<'a> {
-    pub fn new(jobj: JOBJ<'a>) -> Self {
+pub struct BoneTree {
+    pub index: usize,
+    pub children: Box<[BoneTree]>,
+}
+
+pub struct Bone {
+    pub mesh: Option<Mesh>,
+    pub base_transform: Mat4,
+    pub animated_transform: Mat4,
+}
+
+impl Skeleton {
+    pub fn apply_animation(&mut self, frame: f32, animation: &Animation) {
+        for transform in animation.transforms.iter() {
+            let bone = &mut self.bones[transform.bone_index];
+            bone.animated_transform = transform.compute_transform_at(frame, &bone.base_transform);
+        }
+    }
+}
+
+impl BoneTree {
+    pub fn new(jobj: JOBJ<'_>, bones: &mut Vec<Bone>) -> Self {
+        let mesh = jobj.get_dobj().map(
+            |dobj| Mesh { vertices: dobj.decode_vertices().into_boxed_slice() }
+        );
+
+        let bone = Bone {
+            mesh,
+            base_transform: Mat4::IDENTITY,
+            animated_transform: Mat4::IDENTITY,
+        };
+        let index = bones.len();
+        bones.push(bone);
+
         let mut children = Vec::new();
         for child_jobj in jobj.children() {
-            children.push(Bone::new(child_jobj));
+            children.push(BoneTree::new(child_jobj, bones));
         }
 
-        Self {
-            jobj,
-            children,
+        BoneTree {
+            index,
+            children: children.into_boxed_slice(),
         }
-        // TODO add transform things
     }
 
     pub fn inspect_each<'b, F>(&'b self, f: &mut F) where
         F: FnMut(&'b Self)
     {
         f(self);
-        for c in &self.children {
+        for c in self.children.iter() {
             c.inspect_each(f);
         }
     }

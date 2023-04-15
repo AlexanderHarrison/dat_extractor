@@ -14,7 +14,7 @@ mod extract_mesh;
 pub use extract_mesh::extract_scene;
 
 mod extract_anims;
-pub use extract_anims::{AnimDatFile, extract_anims};
+pub use extract_anims::{AnimDatFile, extract_anim_dat_files, extract_anim_from_dat_file};
 
 mod fighter_data;
 pub use fighter_data::{FighterData, parse_fighter_data};
