@@ -15,6 +15,7 @@ fn main() {
         //f.write_all(anim.data).unwrap();
 
         dat_tools::dat::extract_anim_from_dat_file(anim);
+
         break;
     }
 }

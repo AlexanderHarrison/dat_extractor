@@ -592,6 +592,13 @@ impl<'a> Stream<'a> {
         self.bump_cursor(n);
         v
     }
+
+    #[inline(always)]
+    pub fn read_const_bytes<const N: usize>(&self) -> [u8; N] {
+        let bytes: [u8; N] = self.data[self.cursor()..self.cursor() + N].try_into().unwrap();
+        self.bump_cursor(N);
+        bytes
+    }
 }
 
 /// Copied from HSDRaw.

@@ -52,7 +52,7 @@ pub struct Mesh {
 }
 
 pub struct BoneTree {
-    pub index: usize,
+    pub index: usize, // index into Skeleton.bones
     pub children: Box<[BoneTree]>,
 }
 
