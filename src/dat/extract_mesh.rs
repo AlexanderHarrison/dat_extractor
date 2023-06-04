@@ -1,5 +1,7 @@
-use crate::dat::{HSDRawFile, JOBJ, extract_anims::Animation};
-use glam::f32::Mat4;
+use crate::dat::{HSDRawFile, jobj::DOBJ, JOBJ, extract_anims::Animation};
+use glam::f32::{Mat4, Vec3, Vec4};
+use glam::u32::UVec4;
+use glam::swizzles::Vec4Swizzles;
 
 #[derive(Debug)]
 pub enum ExtractMeshError {
@@ -9,11 +11,40 @@ pub enum ExtractMeshError {
 pub fn extract_scene<'a, 'b>(file: &'a HSDRawFile<'b>) -> Result<Scene<'a, 'b>, ExtractMeshError> {
     let root_jobj = root_jobj(file).ok_or(ExtractMeshError::InvalidDatFile)?;
 
-    let mut bones = Vec::new();
+    let mut bone_jobjs = Vec::new();
     let mut bone_tree_roots = Vec::new();
-
     for jobj in root_jobj.siblings() {
-        bone_tree_roots.push(BoneTree::new(jobj, &mut bones));
+        bone_tree_roots.push(BoneTree::new(jobj, &mut bone_jobjs));
+    }
+    
+    let mut bones = Vec::new();
+    for jobj in &bone_jobjs {
+        let mesh = jobj.get_dobj().map(
+            |dobj| Mesh::new(&dobj, &bone_jobjs)
+        );
+
+        let transform = jobj.transform();
+
+        let bone = Bone {
+            parent_index: None,
+            mesh,
+            base_transform: transform,
+            animated_transform: transform,
+        };
+
+        bones.push(bone);
+    }
+
+    fn set_parent_indicies(bones: &mut [Bone], tree: &BoneTree) {
+        for child in tree.children.iter() {
+            bones[child.index].parent_index = Some(tree.index as _);
+
+            set_parent_indicies(bones, child);
+        }
+    }
+
+    for root in bone_tree_roots.iter() {
+        set_parent_indicies(&mut bones, root);
     }
 
     let skeleton = Skeleton { 
@@ -47,8 +78,15 @@ pub struct Skeleton {
     pub bones: Box<[Bone]>,
 }
 
+#[derive(Copy, Clone)]
+pub struct Vertex {
+    pub pos: Vec3,
+    pub weights: Vec4,
+    pub bones: UVec4,
+}
+
 pub struct Mesh {
-    pub vertices: Box<[[f32; 3]]>,
+    pub vertices: Box<[Vertex]>,
 }
 
 pub struct BoneTree {
@@ -57,6 +95,7 @@ pub struct BoneTree {
 }
 
 pub struct Bone {
+    pub parent_index: Option<u32>, // I dislike this
     pub mesh: Option<Mesh>,
     pub base_transform: Mat4,
     pub animated_transform: Mat4,
@@ -71,23 +110,58 @@ impl Skeleton {
     }
 }
 
+impl Bone {
+    pub fn world_transform(&self, bones: &[Bone]) -> Mat4 {
+        match self.parent_index {
+            Some(i) => self.base_transform * bones[i as usize].world_transform(bones),
+            None => self.base_transform,
+        }
+    }
+
+    pub fn animated_world_transform(&self, bones: &[Bone]) -> Mat4 {
+        match self.parent_index {
+            // TODO reverse?
+            Some(i) => bones[i as usize].animated_world_transform(bones) * self.animated_transform,
+            None => self.animated_transform,
+        }
+    }
+
+    pub fn inv_world_transform(&self, bones: &[Bone]) -> Mat4 {
+        self.world_transform(bones).inverse()
+    }
+
+    pub fn animated_bind_matrix(&self, bones: &[Bone]) -> Mat4 {
+        self.inv_world_transform(bones) * self.animated_world_transform(bones)
+    }
+
+    pub fn animated_vertices<'a>(&'a self) -> Option<impl Iterator<Item=Vertex> + 'a> {
+        if let Some(ref m) = self.mesh {
+            let iter = m.vertices.iter()
+                .map(|&v| {
+                    let pos = <Vec4 as From<(Vec3, f32)>>::from((v.pos, 0.0));
+                    let newpos = self.animated_transform * pos;
+                    Vertex { pos: newpos.xyz(), ..v }
+                });
+            Some(iter)
+        } else {
+            None
+        }
+    }
+}
+
+impl Mesh {
+    pub fn new<'a, 'b>(dobj: &'b DOBJ<'a>, bones: &'b [JOBJ<'a>]) -> Self {
+        dobj.create_mesh(bones)
+    }
+}
+
 impl BoneTree {
-    pub fn new(jobj: JOBJ<'_>, bones: &mut Vec<Bone>) -> Self {
-        let mesh = jobj.get_dobj().map(
-            |dobj| Mesh { vertices: dobj.decode_vertices().into_boxed_slice() }
-        );
-
-        let bone = Bone {
-            mesh,
-            base_transform: Mat4::IDENTITY,
-            animated_transform: Mat4::IDENTITY,
-        };
-        let index = bones.len();
-        bones.push(bone);
-
+    pub fn new<'a>(jobj: JOBJ<'a>, jobjs: &mut Vec<JOBJ<'a>>) -> Self {
+        let index = jobjs.len();
+        jobjs.push(jobj.clone());
         let mut children = Vec::new();
         for child_jobj in jobj.children() {
-            children.push(BoneTree::new(child_jobj, bones));
+            children.push(BoneTree::new(child_jobj, jobjs));
         }
 
         BoneTree {

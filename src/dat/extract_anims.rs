@@ -97,7 +97,7 @@ impl AnimTransform {
         // TODO RotationOnly ????????? (SBAnimation.cs:80)
 
         let (mut scale, qrot, mut translation) = base_transform.to_scale_rotation_translation();
-        let (rx, ry, rz) = qrot.to_euler(glam::EulerRot::XYZ); // TODO Maybe?? ...
+        let (rx, ry, rz) = qrot.to_euler(glam::EulerRot::ZYX);
         let mut euler_rotation = Vec3 { x: rx, y: ry, z: rz };
 
         use TrackType::*;
@@ -118,7 +118,7 @@ impl AnimTransform {
         }
 
         let rotation = Quat::from_euler(
-            glam::EulerRot::XYZ, // TODO not sure which to use... 
+            glam::EulerRot::ZYX, // TODO not sure which to use... 
             euler_rotation.x,
             euler_rotation.y,
             euler_rotation.z,

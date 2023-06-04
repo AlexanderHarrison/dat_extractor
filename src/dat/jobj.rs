@@ -1,4 +1,6 @@
 use crate::dat::{HSDStruct, HSDRootNode};
+use crate::dat::extract_mesh::{Mesh, Vertex};
+use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct JOBJ<'a> {
@@ -61,13 +63,17 @@ impl<'a> DOBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(|s| DOBJ::new(s))
     }
 
-    pub fn decode_vertices<'b>(&'b self) -> Vec<[f32; 3]> {
-        let mut v = Vec::new();
-        for pobj in self.get_pobj().siblings() {
-            v.extend(pobj.decode_vertices());
+    pub fn create_mesh<'b>(&'b self, bones: &'b [JOBJ<'a>]) -> Mesh {
+        let mut vertices = Vec::new();
+        for dobj in self.siblings() {
+            for pobj in dobj.get_pobj().siblings() {
+                vertices.extend(pobj.decode_vertices(bones));
+            }
         }
 
-        v
+        Mesh {
+            vertices: vertices.into_boxed_slice(),
+        }
     }
 }
 
@@ -118,7 +124,6 @@ impl<'a> Attribute<'a> {
                 for i in 0..(stride / 2) {
                     let f = buffer.get_i16(offset + i*2) as u16 as f32; 
                     data.push(f);
-                    println!("float {}", f);
                 }
             }
             3 => { // Int16 ,
@@ -147,6 +152,34 @@ impl<'a> Attribute<'a> {
         //println!("loc {}", data[0]);
 
         data
+    }
+}
+
+pub struct Envelope<'a> {
+    pub hsd_struct: HSDStruct<'a>,
+}
+
+impl<'a> Envelope<'a> {
+    pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
+        Self { hsd_struct }
+    }   
+
+    // SBHsdMesh.cs:286 (GXVertexToHsdVertex)
+    // HSD_Envelope.cs:13,56 (Weights, GetWeightAt)
+    pub fn weights<'b>(&'b self) -> [f32; 4] {
+        let mut weights = [0.0f32; 4];
+        let len = self.hsd_struct.reference_count().min(4);
+
+        for i in 0..len {
+            weights[i] = self.hsd_struct.get_f32(i*8 + 4);
+        }
+
+        weights
+    }
+
+    pub fn jobjs<'b>(&'b self) -> impl Iterator<Item=JOBJ<'a>> + 'b {
+        let len = self.hsd_struct.reference_count().min(4);
+        (0..len).map(|i| JOBJ::new(self.hsd_struct.get_reference(i*8)))
     }
 }
 
@@ -197,17 +230,36 @@ impl<'a> POBJ<'a> {
     }
 
     pub fn check_flag<'b>(&'b self, flag: POBJFlag) -> bool {
-        let flags = self.hsd_struct.get_i32(0x0C) as u32;
+        let flags = self.hsd_struct.get_i16(0x0C) as u32;
         (flags & flag as u32) != 0
     }
 
+    pub fn envelope_weights<'b>(&'b self) -> Option<Box<[Envelope<'a>]>> {
+        if !self.check_flag(POBJFlag::Envelope) { return None }
+
+        let envelope_ptrs = self.hsd_struct.get_reference(0x14);
+        let length = (envelope_ptrs.len() / 4).max(1) - 1;
+
+        let mut envelopes = Vec::with_capacity(length);
+
+        for i in 0..length {
+            match envelope_ptrs.try_get_reference(i * 4) {
+                Some(e) => envelopes.push(Envelope::new(e)),
+                None => break
+            }
+        }
+
+        Some(envelopes.into_boxed_slice())
+    }
+
     /// does not decode siblings
-    pub fn decode_vertices<'b>(&'b self) -> Vec<[f32; 3]> {
+    pub fn decode_vertices<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Vertex> {
         //println!("decode");
         let attributes = self.get_attributes();
         //println!("attrlen {}", attributes.len());
 
         let buffer = self.hsd_struct.get_buffer(0x10);
+        let envelope_weights = self.envelope_weights();
 
         let reader = crate::dat::Stream::new(buffer);
         let mut vertices = Vec::new();
@@ -221,7 +273,9 @@ impl<'a> POBJ<'a> {
             let count = reader.read_i16() as u16;
 
             for _ in 0..count {
-                let mut vertex = [0f32; 3];
+                let mut pos = [0f32; 3];
+                let mut bones = [0u32; 4];
+                let mut weights = [0f32; 4];
 
                 for attr in attributes.iter() {
                     if attr.name == AttributeName::GX_VA_NULL {
@@ -250,27 +304,45 @@ impl<'a> POBJ<'a> {
 
                         match attr.name {
                             AttributeName::GX_VA_POS => {
-                                println!("{}, {}, {}", data[0], data[1], data[2]);
-                                //println!("Direct!"); // match
-                                //println!("data {:?}", data);
-                                                     
                                 // shapeset?? check GX_VertexAccessor:111
 
-                                vertex[0] = data[0];
-                                vertex[1] = data[1];
-                                vertex[2] = data[2];
+                                pos[0] = data[0];
+                                pos[1] = data[1];
+                                pos[2] = data[2];
                             },
                             _ => (), // TODO
                         }
                     } else {
+                        match attr.name {
+                            // SBHsdMesh.cs:277 (GXVertexToHsdVertex)
+                            AttributeName::GX_VA_PNMTXIDX => if let Some(ref env) = envelope_weights {
+                                let jobjweight = &env[index / 3];
+                                weights = jobjweight.weights();
+
+                                for (i, jobj) in jobjweight.jobjs().enumerate() {
+                                    let jobj_data_ptr = jobj.hsd_struct.data.as_ptr();
+                                    for (j, bone_jobj) in bone_jobjs.iter().enumerate() {
+                                        if bone_jobj.hsd_struct.data.as_ptr() == jobj_data_ptr {
+                                            bones[i] = j as u32;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            _ => (), // TODO
+                        }
                         // TODO
                     }
                 }
 
+                let vertex = Vertex {
+                    pos: pos.into(),
+                    bones: bones.into(),
+                    weights: weights.into(),
+                };
                 vertices.push(vertex);
            }
         }
-
 
         vertices
     }
@@ -283,6 +355,36 @@ impl<'a> JOBJ<'a> {
         }
 
         Some(JOBJ::new(s.hsd_struct.clone()))
+    }
+
+    pub fn transform<'b>(&'b self) -> Mat4 {
+        // values match StudioSB
+        let rx = self.hsd_struct.get_f32(0x14);
+        let ry = self.hsd_struct.get_f32(0x18);
+        let rz = self.hsd_struct.get_f32(0x1C);
+        let sx = self.hsd_struct.get_f32(0x20);
+        let sy = self.hsd_struct.get_f32(0x24);
+        let sz = self.hsd_struct.get_f32(0x28);
+        let tx = self.hsd_struct.get_f32(0x2C);
+        let ty = self.hsd_struct.get_f32(0x30);
+        let tz = self.hsd_struct.get_f32(0x34);
+
+        let trans = Vec3::new(tx, ty, tz); // matches
+        let scale = Vec3::new(sx, sy, sz);
+        let mut qrot = Quat::from_euler(glam::EulerRot::ZYX, rz, ry, rx);
+
+        // Tools/CrossMath.cs:36
+        // I have no idea why this is necessary
+        // matches StudioSB though!
+        if qrot.w < 0.0 {
+            qrot.x *= -1.0;
+            qrot.y *= -1.0;
+            qrot.z *= -1.0;
+            qrot.w *= -1.0;
+        }
+
+        // matches!
+        Mat4::from_scale_rotation_translation(scale, qrot, trans)
     }
 
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
@@ -300,7 +402,8 @@ impl<'a> JOBJ<'a> {
         if self.check_flag(JOBJFlag::Spline) || self.check_flag(JOBJFlag::PTCL) {
             None
         } else {
-            self.hsd_struct.try_get_reference(0x10).map(|s| DOBJ::new(s))
+            let r = self.hsd_struct.try_get_reference(0x10);
+            r.map(|s| DOBJ::new(s))
         }
     }
 

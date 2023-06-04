@@ -11,7 +11,7 @@ pub use jobj::JOBJ;
 mod hsd_accessors;
 
 mod extract_mesh;
-pub use extract_mesh::extract_scene;
+pub use extract_mesh::{Bone, BoneTree, extract_scene};
 
 mod extract_anims;
 pub use extract_anims::{AnimDatFile, extract_anim_dat_files, extract_anim_from_dat_file};
@@ -74,6 +74,9 @@ pub struct HSDRawFile<'a> {
 }
 
 impl<'a> HSDRawFile<'a> {
+    pub fn from_dat_file(r: &'a DatFile) -> Self {
+        Self::open(Stream::new(&r.data))
+    }
 
     /// I have no idea what is happening here.
     /// This is straight up copied from HSDRaw.

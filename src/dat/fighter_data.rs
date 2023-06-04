@@ -1,4 +1,5 @@
-use crate::dat::{HSDStruct, DatFile};
+use crate::dat::{HSDStruct, DatFile, Stream, HSDRawFile};
+use crate::parse_string;
 
 pub struct FighterData {
     pub character_name: Box<str>,
@@ -16,8 +17,8 @@ pub struct FighterAction {
 pub fn parse_fighter_data(fighter_dat: &DatFile) -> Option<FighterData> {
     let mut actions = Vec::new();
 
-    let stream = crate::dat::Stream::new(&fighter_dat.data);
-    let hsdfile = crate::dat::HSDRawFile::open(stream);
+    let stream = Stream::new(&fighter_dat.data);
+    let hsdfile = HSDRawFile::open(stream);
 
     let fighter_root = &hsdfile.roots[0];
     let name = fighter_root.root_string;
@@ -43,7 +44,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile) -> Option<FighterData> {
 
 fn parse_fighter_action(hsd_struct: HSDStruct) -> Option<FighterAction> {
     let name = if let Some(str_buffer) = hsd_struct.try_get_buffer(0x00) {
-        Some(crate::parse_string(str_buffer)?.to_string().into_boxed_str())
+        Some(parse_string(str_buffer)?.to_string().into_boxed_str())
     } else {
         None
     };
