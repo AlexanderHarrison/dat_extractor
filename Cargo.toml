@@ -9,7 +9,6 @@ debug = true
 
 [dependencies]
 lazy_static = "1.4.0"
-thiserror = "1.0.40"
 #utils = { path = "../utils" }
 glam = "0.23.0"
 slippi_situation_parser = { path = "../slippi_situation_parser" }

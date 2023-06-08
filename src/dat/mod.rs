@@ -1,5 +1,3 @@
-// Most of this file was modified verbatim from StudioSB.
-
 mod hsd_struct;
 use hsd_struct::HSDStruct;
 

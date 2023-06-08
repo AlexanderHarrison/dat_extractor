@@ -1,7 +1,7 @@
 use crate::dat::{FighterAction, HSDRawFile, Stream, HSDStruct, DatFile};
 use glam::f32::{Quat, Mat4, Vec3};
 
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct AnimDatFile<'a> {
     pub data: &'a [u8],
 }
@@ -12,21 +12,85 @@ pub enum AnimParseError {
     CharacterMismatch
 }
 
+#[derive(Clone, Debug)]
+pub struct Animation {
+    pub name: Box<str>,
+    pub transforms: Box<[AnimTransform]>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AnimTransform {
+    pub tracks: Box<[AnimTrack]>,
+    pub bone_index: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct AnimTrack {
+    pub track_type: TrackType,
+    pub keys: Box<[Key]>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FigaTree<'a> {
+    pub hsd_struct: HSDStruct<'a>
+}
+
+#[derive(Clone, Debug)]
+pub struct FigaTreeNode<'a> {
+    pub tracks: Box<[Track<'a>]>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Track<'a> {
+    pub hsd_struct: HSDStruct<'a>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Key {
+    pub frame: f32,
+    pub interpolation: InterpolationType,
+    pub value: f32,
+    pub in_tan: f32,
+    pub out_tan: f32,
+}
+
+#[derive(Copy, Clone, Debug)]
+struct AnimState {
+    pub t0: f32,
+    pub t1: f32,
+    pub p0: f32,
+    pub p1: f32,
+    pub d0: f32,
+    pub d1: f32,
+    pub _op: MeleeInterpolationType,
+    pub op_intrp: MeleeInterpolationType, // idk
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum MeleeInterpolationType {
+    //NONE,
+    CON  { value: f32, time: u16 },
+    LIN  { value: f32, time: u16 },
+    SPL0 { value: f32, time: u16 },
+    SPL  { value: f32, tan: f32, time: u16 },
+    SLP  { tan: f32 },
+    KEY  { value: f32 },
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum InterpolationType {
+    Constant,
+    Linear,
+    Hermite,
+    Step
+}
+
 /// Pass in the raw data of the animations file - Pl*AJ.dat
 /// That is necessary (for now).
 pub fn extract_anims(
     aj_dat: &DatFile,
     actions: Vec<FighterAction>
 ) -> Result<Box<[Animation]>, AnimParseError> {
-    //let aj_hsd = HSDRawFile::open(Stream::new(&aj_dat.data));
-    //if aj_hsd.roots.len() == 0 { return Err(AnimParseError::InvalidAnimFile) }
-    //let s = &aj_hsd.roots[0].root_string;
-
-    //// 'PlyFox5K_Share_ACTION_Wait1_figatree' -> 'Fox'
-    //let anim_char_name: &str = s.strip_prefix("Ply")
-    //    .and_then(|s| s.find("K_").map(|p| &s[..p-1]))
-    //    .ok_or(AnimParseError::InvalidAnimFile)?;
-
     let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
 
     for action in actions.into_iter() {
@@ -48,52 +112,6 @@ pub fn extract_anims(
     }
 
     Ok(animations.into_boxed_slice())
-}
-
-pub struct Animation {
-    pub name: Box<str>,
-    pub transforms: Box<[AnimTransform]>,
-}
-
-pub struct AnimTransform {
-    pub tracks: Box<[AnimTrack]>,
-    pub bone_index: usize,
-}
-
-pub struct AnimTrack {
-    pub track_type: TrackType,
-    pub keys: Box<[Key]>,
-}
-
-pub struct FigaTree<'a> {
-    pub hsd_struct: HSDStruct<'a>
-}
-
-pub struct FigaTreeNode<'a> {
-    pub tracks: Box<[Track<'a>]>,
-}
-
-pub struct Track<'a> {
-    pub hsd_struct: HSDStruct<'a>,
-}
-
-pub struct Key {
-    pub frame: f32,
-    pub interpolation: InterpolationType,
-    pub value: f32,
-    pub in_tan: f32,
-    pub out_tan: f32,
-}
-
-struct AnimState {
-    pub t0: f32,
-    pub t1: f32,
-    pub p0: f32,
-    pub p1: f32,
-    pub d0: f32,
-    pub d1: f32,
-    pub _op: MeleeInterpolationType,
-    pub op_intrp: MeleeInterpolationType, // idk
 }
 
 impl AnimTransform {
@@ -205,25 +223,6 @@ fn parse_float(stream: &mut Stream<'_>, format: AnimDataFormat, scale: f32) -> f
             n as f32 / scale
         },
     }
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum MeleeInterpolationType {
-    //NONE,
-    CON  { value: f32, time: u16 },
-    LIN  { value: f32, time: u16 },
-    SPL0 { value: f32, time: u16 },
-    SPL  { value: f32, tan: f32, time: u16 },
-    SLP  { tan: f32 },
-    KEY  { value: f32 },
-}
-
-#[derive(Copy, Clone)]
-pub enum InterpolationType {
-    Constant,
-    Linear,
-    Hermite,
-    Step
 }
 
 fn decode_track<'a, 'b>(track: &'b Track<'a>) -> AnimTrack {
@@ -604,7 +603,7 @@ impl<'a> FigaTree<'a> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TrackType {
     //NONE = 0,
     RotateX = 1,

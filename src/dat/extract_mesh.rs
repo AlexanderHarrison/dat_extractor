@@ -7,6 +7,55 @@ pub enum ExtractMeshError {
     InvalidDatFile,
 }
 
+#[derive(Clone, Debug)]
+pub struct Skeleton {
+    pub bone_tree_roots: Box<[BoneTree]>,
+    pub bones: Box<[Bone]>,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Vertex {
+    pub pos: Vec3,
+    pub weights: Vec4,
+    pub bones: UVec4,
+}
+
+#[derive(Clone, Debug)]
+pub struct Primitive {
+    pub vertices: Box<[Vertex]>,
+    pub primitive_type: PrimitiveType,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PrimitiveType {
+    Points = 0xB8,
+    Lines = 0xA8,
+    LineStrip = 0xB0,
+    Triangles = 0x90,
+    TriangleStrip = 0x98,
+    TriangleFan = 0xA0,
+    Quads = 0x80
+}
+
+#[derive(Clone, Debug)]
+pub struct Mesh {
+    pub primitives: Box<[Primitive]>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BoneTree {
+    pub index: usize, // index into Skeleton.bones
+    pub children: Box<[BoneTree]>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Bone {
+    pub parent_index: Option<u32>, // I dislike this
+    pub meshes: Vec<Mesh>,
+    pub base_transform: Mat4,
+    pub animated_transform: Mat4,
+}
+
 pub fn extract_skeleton(model_dat: &DatFile) -> Result<Skeleton, ExtractMeshError> {
     let hsd_file = HSDRawFile::new(model_dat);
 
@@ -64,34 +113,6 @@ fn root_jobj<'a, 'b>(file: &'a HSDRawFile<'b>) -> Option<JOBJ<'b>> {
     None
 }
 
-pub struct Skeleton {
-    pub bone_tree_roots: Box<[BoneTree]>,
-    pub bones: Box<[Bone]>,
-}
-
-#[derive(Copy, Clone)]
-pub struct Vertex {
-    pub pos: Vec3,
-    pub weights: Vec4,
-    pub bones: UVec4,
-}
-
-pub struct Primitive {
-    pub vertices: Box<[Vertex]>,
-    pub primitive_type: PrimitiveType,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum PrimitiveType {
-    Points = 0xB8,
-    Lines = 0xA8,
-    LineStrip = 0xB0,
-    Triangles = 0x90,
-    TriangleStrip = 0x98,
-    TriangleFan = 0xA0,
-    Quads = 0x80
-}
-
 impl PrimitiveType {
     pub fn from_u8(n: u8) -> Option<Self> {
         Some(match n {
@@ -105,22 +126,6 @@ impl PrimitiveType {
             _ => return None
         })
     }
-}
-
-pub struct Mesh {
-    pub primitives: Box<[Primitive]>,
-}
-
-pub struct BoneTree {
-    pub index: usize, // index into Skeleton.bones
-    pub children: Box<[BoneTree]>,
-}
-
-pub struct Bone {
-    pub parent_index: Option<u32>, // I dislike this
-    pub meshes: Vec<Mesh>,
-    pub base_transform: Mat4,
-    pub animated_transform: Mat4,
 }
 
 impl Skeleton {

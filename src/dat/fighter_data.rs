@@ -1,12 +1,14 @@
 use crate::dat::{HSDStruct, DatFile, Stream, Skeleton, extract_skeleton, HSDRawFile, Animation, extract_anims};
 use crate::parse_string;
 
+#[derive(Debug, Clone)]
 pub struct FighterData {
     pub character_name: Box<str>,
     pub animations: Box<[Animation]>,
     pub skeleton: Skeleton,
 }
 
+#[derive(Debug, Clone)]
 pub struct FighterAction {
     pub name: Option<Box<str>>,        // get => _s.GetReference<HSD_String>(0x00);
     pub animation_offset: usize, // get => _s.GetInt32(0x04)

@@ -1,4 +1,3 @@
-use thiserror::Error;
 use std::io::{Read, Seek, SeekFrom, self};
 use std::fs::File;
 use std::collections::HashMap;
@@ -6,13 +5,10 @@ use crate::dat::DatFile;
 
 const OFFSET_FST_OFFSET: u64 = 0x424;
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum ISOParseError {
-    #[error("File not found")]
     FileNotFound,
-
-    #[error("io error")]
-    OtherIOErr(io::Error),
+    InvalidISO,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -31,9 +27,9 @@ pub struct ISODatFiles {
 impl ISODatFiles {
     pub fn new(mut rawiso: File) -> Result<Self, ISOParseError> {
         let iso = &mut rawiso;
-        iso.seek(SeekFrom::Start(OFFSET_FST_OFFSET)).map_err(|e| e.into())?;
+        iso.seek(SeekFrom::Start(OFFSET_FST_OFFSET)).map_err(|_| ISOParseError::InvalidISO)?;
         let fst_offset = read_u32(iso)? as u64;
-        iso.seek(SeekFrom::Start(fst_offset + 0x8)).map_err(|e| e.into())?;
+        iso.seek(SeekFrom::Start(fst_offset + 0x8)).map_err(|_| ISOParseError::InvalidISO)?;
         let entry_count = read_u32(iso)? as u64;
         let string_table_offset = fst_offset + entry_count * 0xC;
 
@@ -68,9 +64,9 @@ impl ISODatFiles {
                 entry.get().clone()
             },
             Entry::Vacant(entry) => {
-                self.iso.seek(SeekFrom::Start(location.start_offset)).map_err(|e| e.into())?;
+                self.iso.seek(SeekFrom::Start(location.start_offset)).map_err(|_| ISOParseError::InvalidISO)?;
                 let mut buf = vec![0; location.size];
-                self.iso.read_exact(&mut buf).map_err(|e| e.into())?;
+                self.iso.read_exact(&mut buf).map_err(|_| ISOParseError::InvalidISO)?;
                 entry.insert(DatFile {
                     filename: name.to_string().into_boxed_str().into(), 
                     data: buf.into_boxed_slice().into(),
@@ -85,9 +81,9 @@ impl ISODatFiles {
         self.open_files[&location].clone()
     }
 
-    pub fn extract_file(&mut self, name: &str, path: &std::path::Path) -> Result<(), ISOParseError> {
-        let dat = self.load_file_by_name(name)?;
-        std::fs::write(path, &dat.data).map_err(|e| e.into())
+    pub fn extract_file(&mut self, location: DatFileLocation, save_path: &std::path::Path) -> Result<(), io::Error> {
+        let dat = self.load_file(location);
+        std::fs::write(save_path, &dat.data)
     }
 }
 
@@ -101,10 +97,10 @@ fn read_files(
     let mut offset = start_offset;
 
     while offset < end_offset {
-        iso.seek(SeekFrom::Start(offset)).map_err(|e| e.into())?;
+        iso.seek(SeekFrom::Start(offset)).map_err(|_| ISOParseError::InvalidISO)?;
 
         let mut buf = [0; 0xC];
-        iso.read_exact(&mut buf).map_err(|e| e.into())?;
+        iso.read_exact(&mut buf).map_err(|_| ISOParseError::InvalidISO)?;
 
         let is_folder = buf[0] == 1;
         if !is_folder {
@@ -134,36 +130,27 @@ fn read_files(
 
 fn read_u32(iso: &mut File) -> Result<u32, ISOParseError> {
     let mut buf = [0; 4];
-    iso.read_exact(&mut buf).map_err(|e| e.into())?;
+    iso.read_exact(&mut buf).map_err(|_| ISOParseError::InvalidISO)?;
     Ok(u32::from_be_bytes(buf))
 }
 
 fn read_filename(mut iso: &File, filename_offset: u64) -> Result<Box<str>, ISOParseError> {
-    let return_offset = iso.stream_position().map_err(|e| e.into())?;
+    let return_offset = iso.stream_position().map_err(|_| ISOParseError::InvalidISO)?;
 
-    iso.seek(SeekFrom::Start(filename_offset)).map_err(|e| e.into())?;
+    iso.seek(SeekFrom::Start(filename_offset)).map_err(|_| ISOParseError::InvalidISO)?;
 
     let s = {
         use io::BufRead;
         let mut buf = Vec::new();
         let mut bufreader = io::BufReader::new(&mut iso);
-        bufreader.read_until(0, &mut buf).map_err(|e| e.into())?;
+        bufreader.read_until(0, &mut buf).map_err(|_| ISOParseError::InvalidISO)?;
         buf.pop(); // remove null byte
 
         // no safe version
         unsafe { std::str::from_boxed_utf8_unchecked(buf.into_boxed_slice()) }
     };
 
-    iso.seek(SeekFrom::Start(return_offset)).map_err(|e| e.into())?;
+    iso.seek(SeekFrom::Start(return_offset)).map_err(|_| ISOParseError::InvalidISO)?;
 
     Ok(s)
-}
-
-impl Into<ISOParseError> for io::Error {
-    fn into(self) -> ISOParseError {
-        match self.kind() {
-            io::ErrorKind::NotFound => ISOParseError::FileNotFound,
-            _ => ISOParseError::OtherIOErr(self),
-        }
-    }
 }

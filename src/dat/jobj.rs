@@ -472,6 +472,7 @@ pub enum JOBJFlag {
     MTXScaleCompensate = (1 << 26),
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AttributeType {
     GX_NONE = 0,
@@ -480,6 +481,7 @@ pub enum AttributeType {
     GX_INDEX16 = 3,
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AttributeName {
     GX_VA_PNMTXIDX = 0,    // position/normal matrix index

@@ -10,15 +10,6 @@ fn main() {
     let mut files = ISODatFiles::new(file).unwrap();
     let mut data = dat_tools::get_fighter_data(&mut files, Character::Fox).unwrap();
 
-    //let mesh = files.read_file("PlFxGr.dat").unwrap();
-    //let file = dat_tools::dat::HSDRawFile::from_dat_file(&mesh);
-    //let mut scene = dat_tools::dat::extract_scene(&file).unwrap();
-
-    //let base_dat = files.read_file("PlFx.dat").unwrap();
-    //let anim_dat = files.read_file("PlFxAJ.dat").unwrap();
-    //let fighter_data = dat_tools::dat::parse_fighter_data(base_dat, anim_dat).unwrap();
-    //let anims = dat_tools::dat::extract_anim_dat_files(&fighter_data, &anim_dat.data).unwrap();
-
     for anim in data.animations.iter() {
         //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
         if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
