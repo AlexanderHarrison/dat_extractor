@@ -1,12 +1,12 @@
-use crate::dat::{FighterData, HSDRawFile, Stream, HSDStruct};
+use crate::dat::{FighterAction, HSDRawFile, Stream, HSDStruct, DatFile};
 use glam::f32::{Quat, Mat4, Vec3};
 
+#[derive(Clone)]
 pub struct AnimDatFile<'a> {
     pub data: &'a [u8],
-    pub name: &'a str,
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum AnimParseError {
     InvalidAnimFile,
     CharacterMismatch
@@ -14,39 +14,44 @@ pub enum AnimParseError {
 
 /// Pass in the raw data of the animations file - Pl*AJ.dat
 /// That is necessary (for now).
-pub fn extract_anim_dat_files<'a>(fighter_data: &'a FighterData, aj_data: &'a [u8]) -> Result<Vec<AnimDatFile<'a>>, AnimParseError> {
-    let aj_hsd = HSDRawFile::open(Stream::new(aj_data));
-    if aj_hsd.roots.len() == 0 { return Err(AnimParseError::InvalidAnimFile) }
-    let s = &aj_hsd.roots[0].root_string;
+pub fn extract_anims(
+    aj_dat: &DatFile,
+    actions: Vec<FighterAction>
+) -> Result<Box<[Animation]>, AnimParseError> {
+    //let aj_hsd = HSDRawFile::open(Stream::new(&aj_dat.data));
+    //if aj_hsd.roots.len() == 0 { return Err(AnimParseError::InvalidAnimFile) }
+    //let s = &aj_hsd.roots[0].root_string;
 
-    // 'PlyFox5K_Share_ACTION_Wait1_figatree' -> 'Fox'
-    let anim_char_name: &str = s.strip_prefix("Ply")
-        .and_then(|s| s.find("K_").map(|p| &s[..p-1]))
-        .ok_or(AnimParseError::InvalidAnimFile)?;
+    //// 'PlyFox5K_Share_ACTION_Wait1_figatree' -> 'Fox'
+    //let anim_char_name: &str = s.strip_prefix("Ply")
+    //    .and_then(|s| s.find("K_").map(|p| &s[..p-1]))
+    //    .ok_or(AnimParseError::InvalidAnimFile)?;
 
-    if anim_char_name != &*fighter_data.character_name { return Err(AnimParseError::CharacterMismatch); }
+    let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
 
-    let mut animations: Vec<AnimDatFile> = Vec::with_capacity(fighter_data.fighter_actions.len());
-
-    for action in &fighter_data.fighter_actions {
+    for action in actions.into_iter() {
         let offset = action.animation_offset;
         let size = action.animation_size;
-        let data = &aj_data[offset..offset+size];
+        let data = &aj_dat.data[offset..offset+size];
 
-        if let Some(name) = &action.name {
-            if animations.iter().find(|a| a.name == &**name).is_none() {
-                animations.push(AnimDatFile {
-                    data,
+        // TODO might be discarding some animations??
+        if let Some(name) = action.name {
+            if animations.iter().find(|a| &*a.name == &*name).is_none() {
+                let animation = Animation {
                     name,
-                })
+                    transforms: extract_anim_transforms(data)
+                };
+
+                animations.push(animation);
             }
         }
     }
 
-    Ok(animations)
+    Ok(animations.into_boxed_slice())
 }
 
 pub struct Animation {
+    pub name: Box<str>,
     pub transforms: Box<[AnimTransform]>,
 }
 
@@ -87,7 +92,7 @@ struct AnimState {
     pub p1: f32,
     pub d0: f32,
     pub d1: f32,
-    pub op: MeleeInterpolationType,
+    pub _op: MeleeInterpolationType,
     pub op_intrp: MeleeInterpolationType, // idk
 }
 
@@ -118,7 +123,7 @@ impl AnimTransform {
         }
 
         let rotation = Quat::from_euler(
-            glam::EulerRot::ZYX, // TODO not sure which to use... 
+            glam::EulerRot::ZYX,
             euler_rotation.z,
             euler_rotation.y,
             euler_rotation.x,
@@ -128,15 +133,14 @@ impl AnimTransform {
     }
 }
 
-pub fn extract_anim_from_dat_file<'a>(dat_file: AnimDatFile<'a>) -> Animation {
-    let stream = Stream::new(dat_file.data);
+fn extract_anim_transforms(anim_data: &[u8]) -> Box<[AnimTransform]> {
+    let stream = Stream::new(anim_data);
     let hsd_file = HSDRawFile::open(stream);
 
     let anim_root = &hsd_file.roots[0];
     assert!(anim_root.root_string.contains("figatree"));
 
     let figatree = FigaTree::new(anim_root.hsd_struct.clone());
-    // figatree matches
 
     let mut transforms = Vec::new();
 
@@ -158,9 +162,7 @@ pub fn extract_anim_from_dat_file<'a>(dat_file: AnimDatFile<'a>) -> Animation {
         transforms.push(transform);
     }
 
-    Animation {
-        transforms: transforms.into_boxed_slice()
-    }
+    transforms.into_boxed_slice()
 }
 
 // no clue what this does.
@@ -207,7 +209,7 @@ fn parse_float(stream: &mut Stream<'_>, format: AnimDataFormat, scale: f32) -> f
 
 #[derive(Copy, Clone, Debug)]
 pub enum MeleeInterpolationType {
-    NONE,
+    //NONE,
     CON  { value: f32, time: u16 },
     LIN  { value: f32, time: u16 },
     SPL0 { value: f32, time: u16 },
@@ -228,7 +230,7 @@ fn decode_track<'a, 'b>(track: &'b Track<'a>) -> AnimTrack {
     let track_type = track.track_type();
 
     // buffer not at 0x04 as in FOBJ! 
-    // FOBJs are constructed from Tracks, and hold the Buffer ptr at 0x04 instead
+    // FOBJs are constructed from Tracks, and hold the Buffer ptr at 0x08 instead
     // We never bother to convert Tracks to FOBJs
     let mut buffer = Stream::new(track.hsd_struct.get_reference(0x08).data);
     let stream = &mut buffer;
@@ -315,7 +317,7 @@ fn decode_track<'a, 'b>(track: &'b Track<'a>) -> AnimTrack {
         }
 
         let key = match state.op_intrp {
-            MeleeInterpolationType::NONE => panic!(),
+            //MeleeInterpolationType::NONE => panic!(),
             MeleeInterpolationType::CON { .. } | MeleeInterpolationType::KEY { .. } => Key {
                 frame: state.t0,
                 value: state.p0,
@@ -348,7 +350,6 @@ fn decode_track<'a, 'b>(track: &'b Track<'a>) -> AnimTrack {
                     in_tan,
                     out_tan: state.d0,
                 }
-                //add_key(&mut keys, state.t0, state.p0, InterpolationType::Linear, Some((n, state.d0)));
             }
         };
         
@@ -378,7 +379,7 @@ fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
         op = interpolation;
 
         match op {
-            MeleeInterpolationType::NONE => (),
+            //MeleeInterpolationType::NONE => (),
             MeleeInterpolationType::CON { value, .. } | MeleeInterpolationType::LIN { value, ..} => {
                 p0 = p1;
                 p1 = value;
@@ -422,7 +423,7 @@ fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
         op_intrp = interpolation.clone();
     }
 
-    AnimState { t0, t1, p0, p1, d0, d1, op, op_intrp }
+    AnimState { t0, t1, p0, p1, d0, d1, _op: op, op_intrp }
 }
 
 fn lerp(av: f32, bv: f32, v0: f32, v1: f32, t: f32) -> f32 {
@@ -435,12 +436,12 @@ fn lerp(av: f32, bv: f32, v0: f32, v1: f32, t: f32) -> f32 {
     return (av * (1.0 - mu)) + (bv * mu);
 }
 
-fn hermite(Frame: f32, FrameLeft: f32, FrameRight: f32, LS: f32, RS: f32, LHS: f32, RHS: f32) -> f32 {
-    let FrameDiff = Frame - FrameLeft;
-    let Weight = FrameDiff / (FrameRight - FrameLeft);
+fn hermite(frame: f32, frame_left: f32, frame_right: f32, ls: f32, rs: f32, lhs: f32, rhs: f32) -> f32 {
+    let frame_diff = frame - frame_left;
+    let weight = frame_diff / (frame_right - frame_left);
 
-    let mut result = LHS + (LHS - RHS) * (2.0 * Weight - 3.0) * Weight * Weight;
-    result += (FrameDiff * (Weight - 1.0)) * (LS * (Weight - 1.0) + RS * Weight);
+    let mut result = lhs + (lhs - rhs) * (2.0 * weight - 3.0) * weight * weight;
+    result += (frame_diff * (weight - 1.0)) * (ls * (weight - 1.0) + rs * weight);
 
     return result;
 }
@@ -455,31 +456,35 @@ impl AnimTrack {
         let left = self.binary_search_keys(frame);
         let right = left + 1;
 
+        if right >= self.keys.len() {
+            return self.keys[left].value
+        }
+
         match self.keys[left].interpolation {
             InterpolationType::Step | InterpolationType::Constant => {
                 return self.keys[left].value;
             },
             InterpolationType::Linear => {
-                let leftValue = self.keys[left].value;
-                let rightValue = self.keys[right].value;
-                let leftFrame = self.keys[left].frame;
-                let rightFrame = self.keys[right].frame;
+                let left_value = self.keys[left].value;
+                let right_value = self.keys[right].value;
+                let left_frame = self.keys[left].frame;
+                let right_frame = self.keys[right].frame;
 
-                let value = lerp(leftValue, rightValue, leftFrame, rightFrame, frame);
+                let value = lerp(left_value, right_value, left_frame, right_frame, frame);
 
                 assert!(!value.is_nan());
 
                 return value;
             },
             InterpolationType::Hermite => {
-                let leftValue = self.keys[left].value;
-                let rightValue = self.keys[right].value;
-                let leftTan = self.keys[left].out_tan;
-                let rightTan = self.keys[right].in_tan;
-                let leftFrame = self.keys[left].frame;
-                let rightFrame = self.keys[right].frame;
+                let left_value = self.keys[left].value;
+                let right_value = self.keys[right].value;
+                let left_tan = self.keys[left].out_tan;
+                let right_tan = self.keys[right].in_tan;
+                let left_frame = self.keys[left].frame;
+                let right_frame = self.keys[right].frame;
 
-                let value = hermite(frame, leftFrame, rightFrame, leftTan, rightTan, leftValue, rightValue);
+                let value = hermite(frame, left_frame, right_frame, left_tan, right_tan, left_value, right_value);
 
                 assert!(!value.is_nan());
 
@@ -508,50 +513,6 @@ impl AnimTrack {
         
         return if lower < upper { lower } else { upper };
     }
-
-    // I have no clue man...
-    //pub fn get_value_old(&self, frame: f32) -> f32 {
-    //    use MeleeInterpolationType::*;
-    //    let state = self.get_state(frame);
-
-    //    if frame == state.t0 {
-    //        return state.p0;
-    //    } 
-    //    
-    //    if frame == state.t1 {
-    //        return state.p1
-    //    } 
-
-    //    if state.t0 == state.t1 || matches!(state.op_intrp, CON {..} | KEY {..}) {
-    //        return state.p0
-    //    }
-
-    //    let time = frame - state.t0;
-    //    let fterm = state.t1 - state.t0;
-
-    //    if matches!(state.op_intrp, LIN {..}) {
-    //        let d0 = (state.p1 - state.p0) / fterm;
-    //        return d0 * time + state.p0; 
-    //    }
-
-    //    if matches!(state.op_intrp, SPL {..} | SPL0 {..} | SLP {..}) {
-    //        // Hermite curve, apparently 
-    //        let ftermr = fterm.recip();
-
-    //        let fVar1 = time * time;
-    //        let fVar2 = ftermr * ftermr * fVar1 * time;
-    //        let fVar3 = 3.0 * fVar1 * ftermr * ftermr;
-    //        let fVar4 = fVar2 - fVar1 * ftermr;
-    //        let fVar2 = 2.0 * fVar2 * ftermr;
-    //        return state.d1 * fVar4 
-    //            + state.d0 * (time + (fVar4 - fVar1 * ftermr)) 
-    //            + state.p0 * (1.0 + (fVar2 - fVar3)) 
-    //            + state.p1 * (-fVar2 + fVar3);
-    //    }
-
-    //    state.p0
-    //}
-
 }
 
 #[derive(Copy, Clone, Debug)]

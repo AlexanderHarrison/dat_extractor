@@ -1,9 +1,10 @@
-use crate::dat::{HSDStruct, DatFile, Stream, HSDRawFile};
+use crate::dat::{HSDStruct, DatFile, Stream, Skeleton, extract_skeleton, HSDRawFile, Animation, extract_anims};
 use crate::parse_string;
 
 pub struct FighterData {
     pub character_name: Box<str>,
-    pub fighter_actions: Vec<FighterAction>,
+    pub animations: Box<[Animation]>,
+    pub skeleton: Skeleton,
 }
 
 pub struct FighterAction {
@@ -14,7 +15,7 @@ pub struct FighterAction {
 
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
-pub fn parse_fighter_data(fighter_dat: &DatFile) -> Option<FighterData> {
+pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
     let mut actions = Vec::new();
 
     let stream = Stream::new(&fighter_dat.data);
@@ -36,9 +37,13 @@ pub fn parse_fighter_data(fighter_dat: &DatFile) -> Option<FighterData> {
         actions.push(action);
     }
 
+    let animations = extract_anims(&anim_dat, actions).unwrap(); // TODO
+    let skeleton = extract_skeleton(&model_dat).unwrap();
+
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
-        fighter_actions: actions
+        animations,
+        skeleton
     })
 }
 

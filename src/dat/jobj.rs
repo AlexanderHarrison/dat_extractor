@@ -1,5 +1,4 @@
-use crate::dat::{HSDStruct, HSDRootNode};
-use crate::dat::extract_mesh::{Mesh, Vertex};
+use crate::dat::{HSDStruct, HSDRootNode, Mesh, Vertex, Primitive, PrimitiveType};
 use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -15,32 +14,6 @@ pub struct DOBJ<'a> {
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct POBJ<'a> {
     pub hsd_struct: HSDStruct<'a>,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum PrimitiveType {
-    Points = 0xB8,
-    Lines = 0xA8,
-    LineStrip = 0xB0,
-    Triangles = 0x90,
-    TriangleStrip = 0x98,
-    TriangleFan = 0xA0,
-    Quads = 0x80
-}
-
-impl PrimitiveType {
-    pub fn from_u8(n: u8) -> Option<Self> {
-        Some(match n {
-            0xB8 => Self::Points       ,
-            0xA8 => Self::Lines        ,
-            0xB0 => Self::LineStrip    ,
-            0x90 => Self::Triangles    ,
-            0x98 => Self::TriangleStrip,
-            0xA0 => Self::TriangleFan  ,
-            0x80 => Self::Quads        ,
-            _ => return None
-        })
-    }
 }
 
 impl<'a> DOBJ<'a> {
@@ -63,17 +36,23 @@ impl<'a> DOBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(|s| DOBJ::new(s))
     }
 
-    pub fn create_mesh<'b>(&'b self, bones: &'b [JOBJ<'a>]) -> Mesh {
-        let mut vertices = Vec::new();
+    /// includes siblings
+    pub fn create_meshes<'b>(&'b self, bones: &'b [JOBJ<'a>]) -> Vec<Mesh> {
+        let mut meshes = Vec::new();
+
         for dobj in self.siblings() {
-            for pobj in dobj.get_pobj().siblings() {
-                vertices.extend(pobj.decode_vertices(bones));
-            }
+            let primitives = dobj.get_pobj()
+                .siblings()
+                .map(|p| p.decode_primitives(bones))
+                .flatten()
+                .collect::<Vec<Primitive>>();
+
+            meshes.push(Mesh {
+                primitives: primitives.into_boxed_slice(),
+            })
         }
 
-        Mesh {
-            vertices: vertices.into_boxed_slice(),
-        }
+        meshes
     }
 }
 
@@ -253,7 +232,7 @@ impl<'a> POBJ<'a> {
     }
 
     /// does not decode siblings
-    pub fn decode_vertices<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Vertex> {
+    pub fn decode_primitives<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Primitive> {
         //println!("decode");
         let attributes = self.get_attributes();
         //println!("attrlen {}", attributes.len());
@@ -262,15 +241,17 @@ impl<'a> POBJ<'a> {
         let envelope_weights = self.envelope_weights();
 
         let reader = crate::dat::Stream::new(buffer);
-        let mut vertices = Vec::new();
+        let mut primitives = Vec::new();
 
         while !reader.finished() {
             let b = reader.read_byte();
             if b == 0 { break }
             //println!("pgroup");
 
-            //let primitive = PrimitiveType::from_u8(b).unwrap();
-            let count = reader.read_i16() as u16;
+            let primitive_type = PrimitiveType::from_u8(b).unwrap();
+            let count = reader.read_i16() as usize;
+
+            let mut vertices = Vec::with_capacity(count);
 
             for _ in 0..count {
                 let mut pos = [0f32; 3];
@@ -341,10 +322,17 @@ impl<'a> POBJ<'a> {
                     weights: weights.into(),
                 };
                 vertices.push(vertex);
-           }
+            }
+
+            let primitive = Primitive {
+                vertices: vertices.into_boxed_slice(),
+                primitive_type,
+            };
+
+            primitives.push(primitive);
         }
 
-        vertices
+        primitives
     }
 }
 

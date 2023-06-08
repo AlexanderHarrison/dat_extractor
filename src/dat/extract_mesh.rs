@@ -1,38 +1,39 @@
-use crate::dat::{HSDRawFile, jobj::DOBJ, JOBJ, extract_anims::Animation};
+use crate::dat::{HSDRawFile, jobj::DOBJ, JOBJ, extract_anims::Animation, DatFile};
 use glam::f32::{Mat4, Vec3, Vec4};
 use glam::u32::UVec4;
-use glam::swizzles::Vec4Swizzles;
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum ExtractMeshError {
     InvalidDatFile,
 }
 
-pub fn extract_scene<'a, 'b>(file: &'a HSDRawFile<'b>) -> Result<Scene<'a, 'b>, ExtractMeshError> {
-    let root_jobj = root_jobj(file).ok_or(ExtractMeshError::InvalidDatFile)?;
+pub fn extract_skeleton(model_dat: &DatFile) -> Result<Skeleton, ExtractMeshError> {
+    let hsd_file = HSDRawFile::new(model_dat);
+
+    let root_jobj = root_jobj(&hsd_file).ok_or(ExtractMeshError::InvalidDatFile)?;
 
     let mut bone_jobjs = Vec::new();
     let mut bone_tree_roots = Vec::new();
     for jobj in root_jobj.siblings() {
         bone_tree_roots.push(BoneTree::new(jobj, &mut bone_jobjs));
     }
-    
+
     let mut bones = Vec::new();
+
     for jobj in &bone_jobjs {
-        let mesh = jobj.get_dobj().map(
+        let meshes = jobj.get_dobj().map(
             |dobj| Mesh::new(&dobj, &bone_jobjs)
         );
+        let meshes = meshes.unwrap_or(Vec::new());
 
         let transform = jobj.transform();
 
-        let bone = Bone {
+        bones.push(Bone {
             parent_index: None,
-            mesh,
+            meshes,
             base_transform: transform,
             animated_transform: transform,
-        };
-
-        bones.push(bone);
+        })
     }
 
     fn set_parent_indicies(bones: &mut [Bone], tree: &BoneTree) {
@@ -47,14 +48,9 @@ pub fn extract_scene<'a, 'b>(file: &'a HSDRawFile<'b>) -> Result<Scene<'a, 'b>, 
         set_parent_indicies(&mut bones, root);
     }
 
-    let skeleton = Skeleton { 
+    Ok(Skeleton { 
         bone_tree_roots: bone_tree_roots.into_boxed_slice(),
         bones: bones.into_boxed_slice(),
-    };
-
-    Ok(Scene {
-        file,
-        skeleton,
     })
 }
 
@@ -66,11 +62,6 @@ fn root_jobj<'a, 'b>(file: &'a HSDRawFile<'b>) -> Option<JOBJ<'b>> {
         }
     }
     None
-}
-
-pub struct Scene<'a, 'b> {
-    pub file: &'a HSDRawFile<'b>,
-    pub skeleton: Skeleton,
 }
 
 pub struct Skeleton {
@@ -85,8 +76,39 @@ pub struct Vertex {
     pub bones: UVec4,
 }
 
-pub struct Mesh {
+pub struct Primitive {
     pub vertices: Box<[Vertex]>,
+    pub primitive_type: PrimitiveType,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum PrimitiveType {
+    Points = 0xB8,
+    Lines = 0xA8,
+    LineStrip = 0xB0,
+    Triangles = 0x90,
+    TriangleStrip = 0x98,
+    TriangleFan = 0xA0,
+    Quads = 0x80
+}
+
+impl PrimitiveType {
+    pub fn from_u8(n: u8) -> Option<Self> {
+        Some(match n {
+            0xB8 => Self::Points       ,
+            0xA8 => Self::Lines        ,
+            0xB0 => Self::LineStrip    ,
+            0x90 => Self::Triangles    ,
+            0x98 => Self::TriangleStrip,
+            0xA0 => Self::TriangleFan  ,
+            0x80 => Self::Quads        ,
+            _ => return None
+        })
+    }
+}
+
+pub struct Mesh {
+    pub primitives: Box<[Primitive]>,
 }
 
 pub struct BoneTree {
@@ -96,7 +118,7 @@ pub struct BoneTree {
 
 pub struct Bone {
     pub parent_index: Option<u32>, // I dislike this
-    pub mesh: Option<Mesh>,
+    pub meshes: Vec<Mesh>,
     pub base_transform: Mat4,
     pub animated_transform: Mat4,
 }
@@ -108,19 +130,26 @@ impl Skeleton {
             bone.animated_transform = transform.compute_transform_at(frame, &bone.base_transform);
         }
     }
+
+    pub fn inspect_high_poly_bones<'b, F>(&'b self, f: &mut F) where
+        F: FnMut(&'b Bone)
+    {
+        for root in self.bone_tree_roots.iter() {
+            root.inspect_high_poly_bones(&self.bones, f)
+        }
+    }
 }
 
 impl Bone {
     pub fn world_transform(&self, bones: &[Bone]) -> Mat4 {
         match self.parent_index {
-            Some(i) => self.base_transform * bones[i as usize].world_transform(bones),
+            Some(i) => bones[i as usize].world_transform(bones) * self.base_transform,
             None => self.base_transform,
         }
     }
 
     pub fn animated_world_transform(&self, bones: &[Bone]) -> Mat4 {
         match self.parent_index {
-            // TODO reverse?
             Some(i) => bones[i as usize].animated_world_transform(bones) * self.animated_transform,
             None => self.animated_transform,
         }
@@ -131,33 +160,20 @@ impl Bone {
     }
 
     pub fn animated_bind_matrix(&self, bones: &[Bone]) -> Mat4 {
-        self.inv_world_transform(bones) * self.animated_world_transform(bones)
-    }
-
-    pub fn animated_vertices<'a>(&'a self) -> Option<impl Iterator<Item=Vertex> + 'a> {
-        if let Some(ref m) = self.mesh {
-            let iter = m.vertices.iter()
-                .map(|&v| {
-                    let pos = <Vec4 as From<(Vec3, f32)>>::from((v.pos, 0.0));
-                    let newpos = self.animated_transform * pos;
-                    Vertex { pos: newpos.xyz(), ..v }
-                });
-            Some(iter)
-        } else {
-            None
-        }
+        self.animated_world_transform(bones) * self.inv_world_transform(bones)
     }
 }
 
 impl Mesh {
-    pub fn new<'a, 'b>(dobj: &'b DOBJ<'a>, bones: &'b [JOBJ<'a>]) -> Self {
-        dobj.create_mesh(bones)
+    pub fn new<'a, 'b>(dobj: &'b DOBJ<'a>, bones: &'b [JOBJ<'a>]) -> Vec<Self> {
+        dobj.create_meshes(bones)
     }
 }
 
 impl BoneTree {
     pub fn new<'a>(jobj: JOBJ<'a>, jobjs: &mut Vec<JOBJ<'a>>) -> Self {
         let index = jobjs.len();
+
         jobjs.push(jobj.clone());
         let mut children = Vec::new();
         for child_jobj in jobj.children() {
@@ -176,6 +192,15 @@ impl BoneTree {
         f(self);
         for c in self.children.iter() {
             c.inspect_each(f);
+        }
+    }
+
+    pub fn inspect_high_poly_bones<'b, F>(&'b self, bones: &'b [Bone], f: &mut F) where
+        F: FnMut(&'b Bone)
+    {
+        f(&bones[self.index]);
+        for c in self.children.iter() {
+            c.inspect_high_poly_bones(bones, f);
         }
     }
 }
