@@ -1,10 +1,15 @@
-use crate::dat::{HSDStruct, DatFile, Stream, Skeleton, extract_skeleton, HSDRawFile, Animation, extract_anims};
+use crate::dat::{
+    HSDStruct, DatFile, Stream, Skeleton, extract_skeleton, 
+    HSDRawFile, Animation, extract_anims, extract_mesh::extract_bones,
+    textures::{Texture, extract_textures},
+};
 use crate::parse_string;
 
 #[derive(Debug, Clone)]
 pub struct FighterData {
     pub character_name: Box<str>,
     pub animations: Box<[Animation]>,
+    pub textures: Box<[Texture]>,
     pub skeleton: Skeleton,
 }
 
@@ -18,18 +23,37 @@ pub struct FighterAction {
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
 pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
-    let mut actions = Vec::new();
-
     let stream = Stream::new(&fighter_dat.data);
-    let hsdfile = HSDRawFile::open(stream);
+    let fighter_hsdfile = HSDRawFile::open(stream);
 
-    let fighter_root = &hsdfile.roots[0];
-    let name = fighter_root.root_string;
-    let hsd_struct = &fighter_root.hsd_struct;
-
+    let name = fighter_hsdfile.roots[0].root_string;
     if !name.starts_with("ftData") || name.contains("Copy") {
         return None;
     }
+
+    let actions = parse_actions(&fighter_hsdfile)?;
+    
+    let animations = extract_anims(anim_dat, actions).unwrap(); // TODO
+                                                                
+    let parsed_model_dat = HSDRawFile::new(model_dat);
+    let (jobjs, bone_tree_roots) = extract_bones(&parsed_model_dat).ok()?;
+
+    let skeleton = extract_skeleton(&*jobjs, bone_tree_roots);
+    let textures = extract_textures(&*jobjs);
+
+    Some(FighterData {
+        character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
+        animations,
+        textures,
+        skeleton
+    })
+}
+
+pub fn parse_actions(fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {
+    let mut actions = Vec::new();
+
+    let fighter_root = &fighter_hsd.roots[0];
+    let hsd_struct = &fighter_root.hsd_struct;
 
     let action_table_struct = hsd_struct.get_reference(0x0C);
 
@@ -39,14 +63,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
         actions.push(action);
     }
 
-    let animations = extract_anims(&anim_dat, actions).unwrap(); // TODO
-    let skeleton = extract_skeleton(&model_dat).unwrap();
-
-    Some(FighterData {
-        character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
-        animations,
-        skeleton
-    })
+    Some(actions.into_boxed_slice())
 }
 
 fn parse_fighter_action(hsd_struct: HSDStruct) -> Option<FighterAction> {

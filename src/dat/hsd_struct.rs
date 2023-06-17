@@ -34,13 +34,13 @@ impl<'a> HSDStruct<'a> {
     }
 
     pub fn get_embedded_struct<'b>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {
-        let data = self.get_bytes(loc as usize, len as usize);
+        let data = self.get_bytes(loc, len);
 
         let mut references = HashMap::new();
 
         for (&ref_loc, ref_struct) in self.references.borrow().iter() {
             if ref_loc >= loc && ref_loc < loc + len {
-                references.insert(ref_loc as usize - loc, ref_struct.clone());
+                references.insert(ref_loc - loc, ref_struct.clone());
             }
         }
 
@@ -71,7 +71,7 @@ impl<'a> HSDStruct<'a> {
     }
 
     pub fn get_bytes<'b>(&'b self, location: usize, len: usize) -> &'a [u8] {
-        &self.data[location as usize..location as usize + len as usize]
+        &self.data[location..location+len]
     }
 
     pub fn len(&self) -> usize {
@@ -107,6 +107,10 @@ impl<'a> HSDStruct<'a> {
     pub fn get_f32(&self, loc: usize) -> f32 {
         let bytes: [u8; 4] = self.data[loc..loc+4].try_into().unwrap();
         f32::from_be_bytes(bytes)
+    }
+
+    pub fn get_string(&self, loc: usize) -> &std::ffi::CStr {
+        std::ffi::CStr::from_bytes_until_nul(self.get_buffer(loc)).unwrap()
     }
 }
 

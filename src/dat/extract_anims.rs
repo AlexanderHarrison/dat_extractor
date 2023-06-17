@@ -1,15 +1,9 @@
-use crate::dat::{FighterAction, HSDRawFile, Stream, HSDStruct, DatFile};
+use crate::dat::{FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError};
 use glam::f32::{Quat, Mat4, Vec3};
 
 #[derive(Debug, Copy, Clone)]
 pub struct AnimDatFile<'a> {
     pub data: &'a [u8],
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum AnimParseError {
-    InvalidAnimFile,
-    CharacterMismatch
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +60,7 @@ struct AnimState {
     pub op_intrp: MeleeInterpolationType, // idk
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Copy, Clone, Debug)]
 pub enum MeleeInterpolationType {
     //NONE,
@@ -89,18 +84,18 @@ pub enum InterpolationType {
 /// That is necessary (for now).
 pub fn extract_anims(
     aj_dat: &DatFile,
-    actions: Vec<FighterAction>
-) -> Result<Box<[Animation]>, AnimParseError> {
+    actions: Box<[FighterAction]>
+) -> Result<Box<[Animation]>, DatExtractError> {
     let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
 
-    for action in actions.into_iter() {
+    for action in actions.to_vec().into_iter() {
         let offset = action.animation_offset;
         let size = action.animation_size;
         let data = &aj_dat.data[offset..offset+size];
 
         // TODO might be discarding some animations??
         if let Some(name) = action.name {
-            if animations.iter().find(|a| &*a.name == &*name).is_none() {
+            if animations.iter().any(|a| *a.name == *name) {
                 let animation = Animation {
                     name,
                     transforms: extract_anim_transforms(data)
@@ -225,7 +220,7 @@ fn parse_float(stream: &mut Stream<'_>, format: AnimDataFormat, scale: f32) -> f
     }
 }
 
-fn decode_track<'a, 'b>(track: &'b Track<'a>) -> AnimTrack {
+fn decode_track(track: &Track<'_>) -> AnimTrack {
     let track_type = track.track_type();
 
     // buffer not at 0x04 as in FOBJ! 
@@ -419,7 +414,7 @@ fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
             break
         }
 
-        op_intrp = interpolation.clone();
+        op_intrp = interpolation;
     }
 
     AnimState { t0, t1, p0, p1, d0, d1, _op: op, op_intrp }
@@ -432,7 +427,7 @@ fn lerp(av: f32, bv: f32, v0: f32, v1: f32, t: f32) -> f32 {
     if t == v1 { return bv };
 
     let mu = (t - v0) / (v1 - v0);
-    return (av * (1.0 - mu)) + (bv * mu);
+    (av * (1.0 - mu)) + (bv * mu)
 }
 
 fn hermite(frame: f32, frame_left: f32, frame_right: f32, ls: f32, rs: f32, lhs: f32, rhs: f32) -> f32 {
@@ -442,7 +437,7 @@ fn hermite(frame: f32, frame_left: f32, frame_right: f32, ls: f32, rs: f32, lhs:
     let mut result = lhs + (lhs - rhs) * (2.0 * weight - 3.0) * weight * weight;
     result += (frame_diff * (weight - 1.0)) * (ls * (weight - 1.0) + rs * weight);
 
-    return result;
+    result
 }
 
 impl AnimTrack {
@@ -461,7 +456,7 @@ impl AnimTrack {
 
         match self.keys[left].interpolation {
             InterpolationType::Step | InterpolationType::Constant => {
-                return self.keys[left].value;
+                self.keys[left].value
             },
             InterpolationType::Linear => {
                 let left_value = self.keys[left].value;
@@ -473,7 +468,7 @@ impl AnimTrack {
 
                 assert!(!value.is_nan());
 
-                return value;
+                value
             },
             InterpolationType::Hermite => {
                 let left_value = self.keys[left].value;
@@ -487,7 +482,7 @@ impl AnimTrack {
 
                 assert!(!value.is_nan());
 
-                return value;
+                value
             }
         }
     }
@@ -510,7 +505,7 @@ impl AnimTrack {
             }
         }
         
-        return if lower < upper { lower } else { upper };
+        lower.min(upper)
     }
 }
 
@@ -537,7 +532,7 @@ impl AnimDataFormat {
 }
 
 impl<'a> Track<'a> {
-    pub fn track_type<'b>(&'b self) -> TrackType {
+    pub fn track_type(&self) -> TrackType {
         TrackType::from_u8(self.hsd_struct.get_i8(0x04) as u8).unwrap()
     }
 
@@ -646,16 +641,16 @@ impl TrackType {
     pub fn from_u8(n: u8) -> Option<Self> {
         use TrackType::*;
         Some(match n {
-            //00 => NONE,
-            01 => RotateX,
-            02 => RotateY,
-            03 => RotateZ,
-            //04 => PATH,
-            05 => TranslateX,
-            06 => TranslateY,
-            07 => TranslateZ,
-            08 => ScaleX,
-            09 => ScaleY,
+            //0 => NONE,
+            1 => RotateX,
+            2 => RotateY,
+            3 => RotateZ,
+            //4 => PATH,
+            5 => TranslateX,
+            6 => TranslateY,
+            7 => TranslateZ,
+            8 => ScaleX,
+            9 => ScaleY,
             10 => ScaleZ,
             //11 => NODE,
             

@@ -1,4 +1,6 @@
-use crate::dat::{HSDStruct, HSDRootNode, Mesh, Vertex, Primitive, PrimitiveType};
+#![allow(clippy::upper_case_acronyms)]
+
+use crate::dat::{HSDStruct, HSDRootNode, Mesh, Vertex, Primitive, PrimitiveType, textures::MOBJ};
 use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -16,6 +18,13 @@ pub struct POBJ<'a> {
     pub hsd_struct: HSDStruct<'a>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Attribute<'a> {
+    pub name: AttributeName,
+    pub typ: AttributeType,
+    pub hsd_struct: HSDStruct<'a>,
+}
+
 impl<'a> DOBJ<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
         Self {
@@ -23,17 +32,22 @@ impl<'a> DOBJ<'a> {
         }
     }
 
-    pub fn get_pobj<'b>(&'b self) -> POBJ<'a> {
+    pub fn get_pobj(&self) -> POBJ<'a> {
         POBJ::new(self.hsd_struct.get_reference(0x0C))
     }
 
+    pub fn get_mobj(&self) -> Option<MOBJ<'a>> {
+        self.hsd_struct.try_get_reference(0x08)
+            .map(MOBJ::new)
+    }
+
     /// Includes self
-    pub fn siblings<'b>(&'b self) -> impl Iterator<Item=DOBJ<'a>> {
+    pub fn siblings(&self) -> impl Iterator<Item=DOBJ<'a>> {
         std::iter::successors(Some(self.clone()), |ch| ch.get_sibling())
     }
 
-    pub fn get_sibling<'b>(&'b self) -> Option<DOBJ<'a>> {
-        self.hsd_struct.try_get_reference(0x04).map(|s| DOBJ::new(s))
+    pub fn get_sibling(&self) -> Option<DOBJ<'a>> {
+        self.hsd_struct.try_get_reference(0x04).map(DOBJ::new)
     }
 
     /// includes siblings
@@ -43,8 +57,7 @@ impl<'a> DOBJ<'a> {
         for dobj in self.siblings() {
             let primitives = dobj.get_pobj()
                 .siblings()
-                .map(|p| p.decode_primitives(bones))
-                .flatten()
+                .flat_map(|p| p.decode_primitives(bones))
                 .collect::<Vec<Primitive>>();
 
             meshes.push(Mesh {
@@ -54,13 +67,6 @@ impl<'a> DOBJ<'a> {
 
         meshes
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct Attribute<'a> {
-    pub name: AttributeName,
-    pub typ: AttributeType,
-    pub hsd_struct: HSDStruct<'a>,
 }
 
 impl<'a> Attribute<'a> {
@@ -145,10 +151,11 @@ impl<'a> Envelope<'a> {
 
     // SBHsdMesh.cs:286 (GXVertexToHsdVertex)
     // HSD_Envelope.cs:13,56 (Weights, GetWeightAt)
-    pub fn weights<'b>(&'b self) -> [f32; 4] {
+    pub fn weights(&self) -> [f32; 4] {
         let mut weights = [0.0f32; 4];
         let len = self.hsd_struct.reference_count().min(4);
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..len {
             weights[i] = self.hsd_struct.get_f32(i*8 + 4);
         }
@@ -181,15 +188,15 @@ impl<'a> POBJ<'a> {
     }
 
     /// Includes self
-    pub fn siblings<'b>(&'b self) -> impl Iterator<Item=POBJ<'a>> {
+    pub fn siblings(&self) -> impl Iterator<Item=POBJ<'a>> {
         std::iter::successors(Some(self.clone()), |ch| ch.get_sibling())
     }
 
-    pub fn get_sibling<'b>(&'b self) -> Option<POBJ<'a>> {
-        self.hsd_struct.try_get_reference(0x04).map(|s| POBJ::new(s))
+    pub fn get_sibling(&self) -> Option<POBJ<'a>> {
+        self.hsd_struct.try_get_reference(0x04).map(POBJ::new)
     }
 
-    pub fn get_attributes<'b>(&'b self) -> Vec<Attribute<'a>> {
+    pub fn get_attributes(&self) -> Vec<Attribute<'a>> {
         let attr_buf = self.hsd_struct.get_reference(0x08);
         let shape_set = self.check_flag(POBJFlag::ShapeAnim);
         assert!(!shape_set); // just a hopeful guess. check ToGXAttributes in HSD_POBJ
@@ -208,7 +215,7 @@ impl<'a> POBJ<'a> {
         attributes
     }
 
-    pub fn check_flag<'b>(&'b self, flag: POBJFlag) -> bool {
+    pub fn check_flag(&self, flag: POBJFlag) -> bool {
         let flags = self.hsd_struct.get_i16(0x0C) as u32;
         (flags & flag as u32) != 0
     }
@@ -257,6 +264,7 @@ impl<'a> POBJ<'a> {
                 let mut pos = [0f32; 3];
                 let mut bones = [0u32; 4];
                 let mut weights = [0f32; 4];
+                let mut tex0 = [0f32; 2];
 
                 for attr in attributes.iter() {
                     if attr.name == AttributeName::GX_VA_NULL {
@@ -283,6 +291,7 @@ impl<'a> POBJ<'a> {
                     if attr.typ != AttributeType::GX_DIRECT {
                         let data = attr.get_decoded_data_at(index);
 
+                        #[allow(clippy::single_match)]
                         match attr.name {
                             AttributeName::GX_VA_POS => {
                                 // shapeset?? check GX_VertexAccessor:111
@@ -291,9 +300,14 @@ impl<'a> POBJ<'a> {
                                 pos[1] = data[1];
                                 pos[2] = data[2];
                             },
+                            AttributeName::GX_VA_TEX0 => {
+                                tex0[0] = data[0];
+                                tex0[1] = data[1];
+                            }
                             _ => (), // TODO
                         }
                     } else {
+                        #[allow(clippy::single_match)]
                         match attr.name {
                             // SBHsdMesh.cs:277 (GXVertexToHsdVertex)
                             AttributeName::GX_VA_PNMTXIDX => if let Some(ref env) = envelope_weights {
@@ -318,6 +332,7 @@ impl<'a> POBJ<'a> {
 
                 let vertex = Vertex {
                     pos: pos.into(),
+                    tex0: tex0.into(),
                     bones: bones.into(),
                     weights: weights.into(),
                 };
@@ -345,7 +360,7 @@ impl<'a> JOBJ<'a> {
         Some(JOBJ::new(s.hsd_struct.clone()))
     }
 
-    pub fn transform<'b>(&'b self) -> Mat4 {
+    pub fn transform(&self) -> Mat4 {
         // values match StudioSB
         let rx = self.hsd_struct.get_f32(0x14);
         let ry = self.hsd_struct.get_f32(0x18);
@@ -381,7 +396,7 @@ impl<'a> JOBJ<'a> {
         }
     }
 
-    pub fn check_flag<'b>(&'b self, flag: JOBJFlag) -> bool {
+    pub fn check_flag(&self, flag: JOBJFlag) -> bool {
         let flags = self.hsd_struct.get_i32(0x04) as u32;
         (flags & flag as u32) != 0
     }
@@ -391,7 +406,7 @@ impl<'a> JOBJ<'a> {
             None
         } else {
             let r = self.hsd_struct.try_get_reference(0x10);
-            r.map(|s| DOBJ::new(s))
+            r.map(DOBJ::new)
         }
     }
 
@@ -407,11 +422,11 @@ impl<'a> JOBJ<'a> {
     }
 
     pub fn get_sibling<'b>(&'b self) -> Option<JOBJ<'a>> {
-        self.hsd_struct.try_get_reference(0x0C).map(|s| JOBJ::new(s))
+        self.hsd_struct.try_get_reference(0x0C).map(JOBJ::new)
     }
 
     pub fn get_child<'b>(&'b self) -> Option<JOBJ<'a>> {
-        self.hsd_struct.try_get_reference(0x08).map(|s| JOBJ::new(s))
+        self.hsd_struct.try_get_reference(0x08).map(JOBJ::new)
     }
 
     pub fn get_all_jobjs<'b>(&'b self) -> Vec<JOBJ<'a>> {
@@ -519,16 +534,16 @@ pub enum AttributeName {
 impl AttributeName {
     pub fn from_u8(n: u8) -> Self {
         match n {
-            00 => Self::GX_VA_PNMTXIDX,    
-            01 => Self::GX_VA_TEX0MTXIDX,  
-            02 => Self::GX_VA_TEX1MTXIDX,  
-            03 => Self::GX_VA_TEX2MTXIDX,  
-            04 => Self::GX_VA_TEX3MTXIDX,  
-            05 => Self::GX_VA_TEX4MTXIDX,  
-            06 => Self::GX_VA_TEX5MTXIDX,  
-            07 => Self::GX_VA_TEX6MTXIDX,  
-            08 => Self::GX_VA_TEX7MTXIDX,  
-            09 => Self::GX_VA_POS,
+            0 => Self::GX_VA_PNMTXIDX,    
+            1 => Self::GX_VA_TEX0MTXIDX,  
+            2 => Self::GX_VA_TEX1MTXIDX,  
+            3 => Self::GX_VA_TEX2MTXIDX,  
+            4 => Self::GX_VA_TEX3MTXIDX,  
+            5 => Self::GX_VA_TEX4MTXIDX,  
+            6 => Self::GX_VA_TEX5MTXIDX,  
+            7 => Self::GX_VA_TEX6MTXIDX,  
+            8 => Self::GX_VA_TEX7MTXIDX,  
+            9 => Self::GX_VA_POS,
             10 => Self::GX_VA_NRM,         
             11 => Self::GX_VA_CLR0,        
             12 => Self::GX_VA_CLR1,        

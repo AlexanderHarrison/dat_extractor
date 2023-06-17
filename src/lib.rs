@@ -18,11 +18,12 @@ pub fn open_iso(path: &str) -> Result<ISODatFiles, ISOParseError> {
 
 pub fn get_fighter_data(
     files: &mut ISODatFiles, 
-    character: Character
+    character_colour: CharacterColour,
 ) -> Result<FighterData, ISOParseError> {
+    let character = character_colour.character();
     let data_filename = character_data_filename(character);
     let anim_filename = character_animation_filename(character);
-    let model_filename = character_model_filenames(character)[0];
+    let model_filename = character_model_filename(character_colour);
 
     let base_dat = files.load_file_by_name(data_filename)?;
     let anim_dat = files.load_file_by_name(anim_filename)?;
@@ -31,10 +32,26 @@ pub fn get_fighter_data(
     dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat).ok_or(ISOParseError::InvalidISO)
 }
 
-pub const fn character_model_filenames(character: Character) -> &'static [&'static str] {
+#[derive(Copy, Clone, Debug)]
+pub enum CharacterColour {
+    Fox(FoxColour)
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum FoxColour {
+    Neutral = 0,
+    Lavender = 1,
+    Green = 2,
+    Orange = 3,
+}
+
+pub const fn character_model_filename(character: CharacterColour) -> &'static str {
+    use CharacterColour::*;
     match character {
-        Character::Fox => &["PlFxNr.dat", "PlFxLa.dat", "PlFxGr.dat", "PlFxOr.dat"],
-        _ => todo!(),
+        Fox(FoxColour::Neutral) => "PlFxNr.dat",
+        Fox(FoxColour::Lavender) => "PlFxLa.dat",
+        Fox(FoxColour::Green) => "PlFxGr.dat",
+        Fox(FoxColour::Orange) => "PlFxOr.dat",
     }
 }
 
@@ -56,5 +73,13 @@ pub const fn inner_character_prefix(character: Character) -> &'static str {
     match character {
         Character::Fox => "Fx",
         _ => todo!(),
+    }
+}
+
+impl CharacterColour {
+    pub fn character(self) -> Character {
+        match self {
+            CharacterColour::Fox(..) => Character::Fox,
+        }
     }
 }

@@ -13,8 +13,16 @@ pub use extract_anims::{extract_anims, Animation};
 mod fighter_data;
 pub use fighter_data::{FighterData, FighterAction, parse_fighter_data};
 
+mod textures;
+
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+
+#[derive(Copy, Clone, Debug)]
+pub enum DatExtractError {
+    InvalidDatFile,
+    CharacterMismatch,
+}
 
 #[derive(Clone, Debug)]
 pub struct DatFile {
@@ -206,9 +214,9 @@ impl<'a> HSDRawFile<'a> {
                 offset_to_inner_offsets.insert(offsets[i], reloc_kets);
             }
 
-            if !offset_to_struct.contains_key(&offsets[i]) {
-                offset_to_struct.insert(offsets[i], HSDStruct::new(data, HashMap::new()));
-            }
+            offset_to_struct
+                .entry(offsets[i])
+                .or_insert_with(|| HSDStruct::new(data, HashMap::new()));
         }
 
 
@@ -231,10 +239,8 @@ impl<'a> HSDRawFile<'a> {
                     _s.set_reference_struct(inner_offsets[i] - _o, refstruct.clone());
 
                     // this not is not an orphan
-                    if *refstruct != *_s {
-                        if orphans.contains(refstruct) {
-                            orphans.remove(refstruct);
-                        }
+                    if *refstruct != *_s && orphans.contains(refstruct) {
+                        orphans.remove(refstruct);
                     }
 
                 }
@@ -249,20 +255,20 @@ impl<'a> HSDRawFile<'a> {
             let s = &offset_to_struct[&root_offsets[i]];
             //let a = Self::GuessAccessor(&root_strings[i], s.clone());
 
-            roots.push(HSDRootNode { root_string: root_strings[i].clone(), hsd_struct: s.clone() });
+            roots.push(HSDRootNode { root_string: root_strings[i], hsd_struct: s.clone() });
 
-            if orphans.contains(&s) {
-                orphans.remove(&s);
+            if orphans.contains(s) {
+                orphans.remove(s);
             }
         }
 
         // set references
         for i in 0..ref_offsets.len() {
             let s = &offset_to_struct[&ref_offsets[i]];
-            references.push(HSDRootNode { root_string: ref_strings[i].clone(), hsd_struct: s.clone() });
+            references.push(HSDRootNode { root_string: ref_strings[i], hsd_struct: s.clone() });
 
-            if orphans.contains(&s) {
-                orphans.remove(&s);
+            if orphans.contains(s) {
+                orphans.remove(s);
             }
         }
 
@@ -398,7 +404,7 @@ impl<'a> Stream<'a> {
 /// Copied from HSDRaw.
 /// The semantics in this impl are different than std's binary search.
 fn binary_search<T: PartialEq + PartialOrd>(item: T, a: &[T]) -> Option<usize> {
-    if a.len() == 0 {
+    if a.is_empty() {
         return None;
     }
 
@@ -429,7 +435,7 @@ fn binary_search<T: PartialEq + PartialOrd>(item: T, a: &[T]) -> Option<usize> {
         }
     }
 
-    return Some(mid as usize);
+    Some(mid as usize)
 }
 
 /*

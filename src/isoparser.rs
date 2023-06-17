@@ -77,13 +77,13 @@ impl ISODatFiles {
         Ok(dat)
     }
 
-    pub fn load_file<'a>(&'a self, location: DatFileLocation) -> DatFile {
+    pub fn load_file(&self, location: DatFileLocation) -> DatFile {
         self.open_files[&location].clone()
     }
 
     pub fn extract_file(&mut self, location: DatFileLocation, save_path: &std::path::Path) -> Result<(), io::Error> {
         let dat = self.load_file(location);
-        std::fs::write(save_path, &dat.data)
+        std::fs::write(save_path, dat.data)
     }
 }
 
