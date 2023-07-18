@@ -29,7 +29,8 @@ pub fn get_fighter_data(
     let anim_dat = files.load_file_by_name(anim_filename)?;
     let model_dat = files.load_file_by_name(model_filename)?;
 
-    dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat).ok_or(ISOParseError::InvalidISO)
+    dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat)
+        .ok_or(ISOParseError::InvalidISO)
 }
 
 #[derive(Copy, Clone, Debug)]

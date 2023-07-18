@@ -265,6 +265,7 @@ impl<'a> POBJ<'a> {
                 let mut bones = [0u32; 4];
                 let mut weights = [0f32; 4];
                 let mut tex0 = [0f32; 2];
+                let mut normal = [0f32; 3];
 
                 for attr in attributes.iter() {
                     if attr.name == AttributeName::GX_VA_NULL {
@@ -303,6 +304,17 @@ impl<'a> POBJ<'a> {
                             AttributeName::GX_VA_TEX0 => {
                                 tex0[0] = data[0];
                                 tex0[1] = data[1];
+                            },
+                            AttributeName::GX_VA_NRM => {
+                                normal[0] = data[0];
+                                normal[1] = data[1];
+                                normal[2] = data[2];
+                            },
+                            AttributeName::GX_VA_NBT => {
+                                normal[0] = data[0];
+                                normal[1] = data[1];
+                                normal[2] = data[2];
+                                // bitan + tan as well
                             }
                             _ => (), // TODO
                         }
@@ -332,7 +344,8 @@ impl<'a> POBJ<'a> {
 
                 let vertex = Vertex {
                     pos: pos.into(),
-                    tex0: tex0.into(),
+                    uv: tex0.into(),
+                    normal: normal.into(),
                     bones: bones.into(),
                     weights: weights.into(),
                 };

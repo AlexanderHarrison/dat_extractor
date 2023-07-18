@@ -10,7 +10,7 @@ debug = true
 [dependencies]
 lazy_static = "1.4.0"
 #utils = { path = "../utils" }
-glam = "0.23.0"
+glam = "0.24"
 slippi_situation_parser = { path = "../slippi_situation_parser" }
 
 [dev-dependencies]

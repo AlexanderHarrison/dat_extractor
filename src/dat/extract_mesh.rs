@@ -12,7 +12,8 @@ pub struct Skeleton {
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
     pub pos: Vec3,
-    pub tex0: Vec2, // uv ?
+    pub uv: Vec2,
+    pub normal: Vec3,
     pub weights: Vec4,
     pub bones: UVec4,
 }
