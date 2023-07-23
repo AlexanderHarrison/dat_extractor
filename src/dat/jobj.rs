@@ -1,6 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use crate::dat::{HSDStruct, HSDRootNode, Mesh, Vertex, Primitive, PrimitiveType, textures::MOBJ};
+use crate::dat::{HSDStruct, HSDRootNode, Vertex, Primitive, PrimitiveType, textures::MOBJ};
 use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -50,23 +50,6 @@ impl<'a> DOBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(DOBJ::new)
     }
 
-    /// includes siblings
-    pub fn create_meshes<'b>(&'b self, bones: &'b [JOBJ<'a>]) -> Vec<Mesh> {
-        let mut meshes = Vec::new();
-
-        for dobj in self.siblings() {
-            let primitives = dobj.get_pobj()
-                .siblings()
-                .flat_map(|p| p.decode_primitives(bones))
-                .collect::<Vec<Primitive>>();
-
-            meshes.push(Mesh {
-                primitives: primitives.into_boxed_slice(),
-            })
-        }
-
-        meshes
-    }
 }
 
 impl<'a> Attribute<'a> {
@@ -238,29 +221,32 @@ impl<'a> POBJ<'a> {
         Some(envelopes.into_boxed_slice())
     }
 
-    /// does not decode siblings
-    pub fn decode_primitives<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Primitive> {
-        //println!("decode");
+    /// does not decode siblings.
+    /// returns number of primitives decoded
+    //pub fn decode_primitives<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Primitive> {
+    pub fn decode_primitives<'b>(
+        &'b self, 
+        primitives: &mut Vec<Primitive>, 
+        vertices: &mut Vec<Vertex>,
+        bone_jobjs: &[JOBJ<'a>],
+    ) -> u16 {
         let attributes = self.get_attributes();
-        //println!("attrlen {}", attributes.len());
 
         let buffer = self.hsd_struct.get_buffer(0x10);
         let envelope_weights = self.envelope_weights();
 
         let reader = crate::dat::Stream::new(buffer);
-        let mut primitives = Vec::new();
 
+        let mut prim_count = 0;
         while !reader.finished() {
             let b = reader.read_byte();
             if b == 0 { break }
-            //println!("pgroup");
 
+            let vert_start = vertices.len() as _;
             let primitive_type = PrimitiveType::from_u8(b).unwrap();
-            let count = reader.read_i16() as usize;
+            let vert_len = reader.read_i16() as _;
 
-            let mut vertices = Vec::with_capacity(count);
-
-            for _ in 0..count {
+            for _ in 0..vert_len {
                 let mut pos = [0f32; 3];
                 let mut bones = [0u32; 4];
                 let mut weights = [0f32; 4];
@@ -353,14 +339,16 @@ impl<'a> POBJ<'a> {
             }
 
             let primitive = Primitive {
-                vertices: vertices.into_boxed_slice(),
+                vert_start,
+                vert_len,
                 primitive_type,
             };
 
             primitives.push(primitive);
+            prim_count += 1;
         }
 
-        primitives
+        prim_count
     }
 }
 

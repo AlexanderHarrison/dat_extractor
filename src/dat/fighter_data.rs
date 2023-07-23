@@ -1,6 +1,6 @@
 use crate::dat::{
-    HSDStruct, DatFile, Stream, Skeleton, extract_skeleton, 
-    HSDRawFile, Animation, extract_anims, extract_mesh::extract_bones,
+    HSDStruct, DatFile, Stream, Model,
+    HSDRawFile, Animation, extract_anims, extract_mesh::extract_model,
     textures::{Texture, extract_textures},
 };
 use crate::parse_string;
@@ -10,7 +10,7 @@ pub struct FighterData {
     pub character_name: Box<str>,
     pub animations: Box<[Animation]>,
     pub textures: Box<[Texture]>,
-    pub skeleton: Skeleton,
+    pub model: Model,
 }
 
 #[derive(Debug, Clone)]
@@ -36,16 +36,15 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     let animations = extract_anims(anim_dat, actions).unwrap(); // TODO
                                                                 
     let parsed_model_dat = HSDRawFile::new(model_dat);
-    let (jobjs, bone_tree_roots) = extract_bones(&parsed_model_dat).ok()?;
+    let (jobjs, model) = extract_model(&parsed_model_dat).ok()?;
 
-    let skeleton = extract_skeleton(&*jobjs, bone_tree_roots);
     let textures = extract_textures(&*jobjs);
 
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         animations,
         textures,
-        skeleton
+        model
     })
 }
 

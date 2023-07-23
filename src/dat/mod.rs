@@ -5,10 +5,10 @@ mod jobj;
 pub use jobj::JOBJ;
 
 mod extract_mesh;
-pub use extract_mesh::{Skeleton, Bone, BoneTree, extract_skeleton, Primitive, PrimitiveType, Vertex, Mesh};
+pub use extract_mesh::{Model, Bone, extract_model, Primitive, PrimitiveType, Vertex};
 
 mod extract_anims;
-pub use extract_anims::{extract_anims, Animation};
+pub use extract_anims::{extract_anims, Animation, AnimationFrame};
 
 mod fighter_data;
 pub use fighter_data::{FighterData, FighterAction, parse_fighter_data};

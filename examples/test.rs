@@ -10,51 +10,72 @@ fn main() {
     let mut files = ISODatFiles::new(file).unwrap();
     let c = dat_tools::CharacterColour::Fox(dat_tools::FoxColour::Neutral);
     let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
+    let model = data.model;
 
-    for anim in data.animations.iter() {
-        //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
-        if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
-            data.skeleton.apply_animation(10.0, &anim);
-            break;
-        }
+    //for anim in data.animations.iter() {
+    //    //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
+    //    if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
+    //        data.skeleton.apply_animation(10.0, &anim);
+    //        break;
+    //    }
+    //}
+
+    //let bones = &*data.skeleton.bones;
+    ////data.skeleton.bone_tree_roots[0].inspect_each(&mut |b| println!("{}", b.index)); return;
+    //
+    //let mut b = 0;
+    //let mut m = 0;
+    //let mut p = 0;
+    //let mut v = 0;
+    //let mut mesh_index = 0;
+    //for bo in bones.iter() {
+    //    b += 1;
+    //    for mesh in bo.meshes.iter() {
+    //        if 36 <= mesh_index && mesh_index <= 67 { 
+    //            mesh_index += 1;
+    //            continue;
+    //        } else {
+    //            mesh_index += 1;
+    //        }
+    //        m += 1;
+
+    //        for pr in mesh.primitives.iter() {
+    //            p += 1;
+
+    //            v += pr.vertices.len();
+
+    //            match pr.primitive_type {
+    //                PrimitiveType::Triangles => { }
+    //                PrimitiveType::TriangleStrip => { }
+    //                PrimitiveType::Quads => { }
+    //                p => panic!("{:?}", p)
+    //            }
+    //        }
+    //    }
+    //}
+
+    let frame = dat_tools::dat::AnimationFrame::new_t_pose(&model);
+
+    for anim in frame.animated_bind_transforms.iter() {
+        println!("{:.4}", anim.x_axis[0].abs());
+        println!("{:.4}", anim.x_axis[1].abs());
+        println!("{:.4}", anim.x_axis[2].abs());
+        println!("{:.4}", anim.x_axis[3].abs());
+        println!("{:.4}", anim.y_axis[0].abs());
+        println!("{:.4}", anim.y_axis[1].abs());
+        println!("{:.4}", anim.y_axis[2].abs());
+        println!("{:.4}", anim.y_axis[3].abs());
+        println!("{:.4}", anim.z_axis[0].abs());
+        println!("{:.4}", anim.z_axis[1].abs());
+        println!("{:.4}", anim.z_axis[2].abs());
+        println!("{:.4}", anim.z_axis[3].abs());
+        println!("{:.4}", anim.w_axis[0].abs());
+        println!("{:.4}", anim.w_axis[1].abs());
+        println!("{:.4}", anim.w_axis[2].abs());
+        println!("{:.4}", anim.w_axis[3].abs());
     }
 
-    let bones = &*data.skeleton.bones;
-    //data.skeleton.bone_tree_roots[0].inspect_each(&mut |b| println!("{}", b.index)); return;
-    
-    let mut b = 0;
-    let mut m = 0;
-    let mut p = 0;
-    let mut v = 0;
-    let mut mesh_index = 0;
-    for bo in bones.iter() {
-        b += 1;
-        for mesh in bo.meshes.iter() {
-            if 36 <= mesh_index && mesh_index <= 67 { 
-                mesh_index += 1;
-                continue;
-            } else {
-                mesh_index += 1;
-            }
-            m += 1;
-
-            for pr in mesh.primitives.iter() {
-                p += 1;
-
-                v += pr.vertices.len();
-
-                match pr.primitive_type {
-                    PrimitiveType::Triangles => { }
-                    PrimitiveType::TriangleStrip => { }
-                    PrimitiveType::Quads => { }
-                    p => panic!("{:?}", p)
-                }
-            }
-        }
-    }
-
-    println!("{} bones", b);
-    println!("{} meshes", m);
-    println!("{} primitives", p);
-    println!("{} vertices", v);
+    //println!("{} bones", model.bones.len());
+    //println!("{} primitives", model.primitives.len());
+    //println!("{} vertices", model.vertices.len());
 }

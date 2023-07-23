@@ -1,5 +1,39 @@
-use crate::dat::{FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError};
+use crate::dat::{Model, FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError};
 use glam::f32::{Quat, Mat4, Vec3};
+
+#[derive(Clone, Debug)]
+pub struct AnimationFrame {
+    // one for each bone
+    pub animated_transforms: Box<[Mat4]>,
+    pub animated_world_transforms: Box<[Mat4]>,
+    pub animated_bind_transforms: Box<[Mat4]>,
+}
+
+impl AnimationFrame {
+    pub fn new_t_pose(model: &Model) -> Self {
+        let bone_len = model.base_transforms.len();
+        let animated_transforms = model.base_transforms.to_vec().into_boxed_slice();
+        let mut animated_world_transforms = Vec::with_capacity(bone_len);
+        let mut animated_bind_transforms = Vec::with_capacity(bone_len);
+
+        for (i, base_transform) in model.base_transforms.iter().enumerate() {
+            let world_transform = match model.bones[i].parent {
+                Some(p_i) => animated_world_transforms[p_i as usize] * *base_transform,
+                None => *base_transform
+            };
+
+            animated_world_transforms.push(world_transform);
+            let bind_transform = model.inv_world_transforms[i] * world_transform;
+            animated_bind_transforms.push(bind_transform);
+        }
+
+        AnimationFrame {
+            animated_transforms,
+            animated_world_transforms: animated_world_transforms.into_boxed_slice(),
+            animated_bind_transforms: animated_bind_transforms.into_boxed_slice(),
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct AnimDatFile<'a> {
@@ -95,7 +129,7 @@ pub fn extract_anims(
 
         // TODO might be discarding some animations??
         if let Some(name) = action.name {
-            if animations.iter().any(|a| *a.name == *name) {
+            if animations.iter().all(|a| *a.name != *name) {
                 let animation = Animation {
                     name,
                     transforms: extract_anim_transforms(data)
@@ -107,6 +141,32 @@ pub fn extract_anims(
     }
 
     Ok(animations.into_boxed_slice())
+}
+
+impl Animation {
+    pub fn frame_at(
+        &self, 
+        frame_num: f32, 
+        prev_frame: &mut AnimationFrame,
+        model: &Model,
+    ) {
+        for transform in self.transforms.iter() {
+            let bone_index = transform.bone_index;
+            let base_transform = &model.base_transforms[bone_index];
+            prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base_transform);
+        }
+
+        for (i, animated_transform) in prev_frame.animated_transforms.iter().enumerate() {
+            let animated_world_transform = match model.bones[i].parent {
+                Some(p_i) => prev_frame.animated_world_transforms[p_i as usize] * *animated_transform,
+                None => *animated_transform
+            };
+
+            prev_frame.animated_world_transforms[i] = animated_world_transform;
+            let animated_bind_transform = model.inv_world_transforms[i] * animated_world_transform;
+            prev_frame.animated_bind_transforms[i] = animated_bind_transform;
+        }
+    }
 }
 
 impl AnimTransform {
