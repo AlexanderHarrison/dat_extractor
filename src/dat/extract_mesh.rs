@@ -62,7 +62,7 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
         bone_jobjs: &'a mut Vec<JOBJ<'b>>, 
         bone_child_idx: &'a mut Vec<u16>, 
         bones: &'a mut Vec<Bone>, 
-        parent: Option<u16>, 
+        parent: Option<u16>,
         jobj: JOBJ<'b>
     ) -> u16 {
         bone_jobjs.push(jobj.clone());
@@ -93,7 +93,7 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
     let root_jobj = parsed_model_dat.roots.iter()
         .find_map(|root| JOBJ::try_from_root_node(root))
         .ok_or(DatExtractError::InvalidDatFile)?;
-
+    
     for jobj in root_jobj.siblings() {
         set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
     }
@@ -102,12 +102,19 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
     let mut primitives = Vec::with_capacity(256);
     let mut vertices = Vec::with_capacity(8192);
 
+    let mut dobj_idx = 0;
     for (i, jobj) in bone_jobjs.iter().enumerate() {
         let prim_start = primitives.len() as _;
         let mut prim_len = 0;
 
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
+                if 36 <= dobj_idx && dobj_idx <= 67 { // skip low poly mesh
+                    dobj_idx += 1;
+                    continue;
+                }
+
+                dobj_idx += 1;
                 for pobj in dobj.get_pobj().siblings() {
                     prim_len += pobj.decode_primitives(&mut primitives, &mut vertices, &bone_jobjs);
                 }
@@ -135,10 +142,10 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
         world_transforms.push(world_transform)
     }
 
-    for t in world_transforms.iter_mut() {
+    let mut inv_world_transforms = world_transforms;
+    for t in inv_world_transforms.iter_mut() {
         *t = t.inverse();
     }
-    let inv_world_transforms = world_transforms;
 
     // construct model ------------------------------------------------
     let model = Model {
