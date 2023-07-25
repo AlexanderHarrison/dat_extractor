@@ -41,7 +41,7 @@ impl AnimationFrame {
             let p_i = bone.prim_start as usize;
             let p_len = bone.prim_len as usize;
 
-            'prim: for p in model.primitives[p_i..p_i+p_len].iter() {
+            for p in model.primitives[p_i..p_i+p_len].iter() {
                 let v_i = p.vert_start as usize;
                 let v_len = p.vert_len as usize;
                 let mut points = Vec::with_capacity(v_len);
@@ -60,12 +60,6 @@ impl AnimationFrame {
                         let v2 = (self.animated_bind_transforms[v.bones.y as usize] * v.weights.y) * t;
                         let v3 = (self.animated_bind_transforms[v.bones.z as usize] * v.weights.z) * t;
                         let v4 = (self.animated_bind_transforms[v.bones.w as usize] * v.weights.w) * t;
-
-                        let m = self.animated_bind_transforms[v.bones.w as usize];
-                        //println!("{:.4}", m.x_axis.x);
-                        //println!("{:.4}", m.x_axis.y);
-                        //println!("{:.4}", m.x_axis.z);
-                        //println!("{:.4}", m.x_axis.w);
                         (v1 + v2 + v3 + v4).xyz()
                     } else {
                         t2.xyz()
@@ -74,7 +68,6 @@ impl AnimationFrame {
                     points.push(pos);
                 }
 
-                //continue;
                 match p.primitive_type {
                     PrimitiveType::Triangles => {
                         for t in points.chunks_exact(3) {
