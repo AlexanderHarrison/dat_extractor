@@ -23,12 +23,20 @@ pub enum PrimitiveType {
     Quads = 0x80
 }
 
-
 #[derive(Copy, Clone, Debug)]
-pub struct Primitive {
-    pub primitive_type: PrimitiveType,
-    pub vert_start: u32,
-    pub vert_len: u16,
+pub enum Primitive {
+    Triangles {
+        vert_start: u32,
+        vert_len: u16,
+    },
+    TriangleStrip {
+        vert_start: u32,
+        vert_len: u16,
+    },
+    IndexedTriangles {
+        idx_start: u32,
+        idx_len: u32,
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -41,6 +49,13 @@ pub struct Vertex {
 }
 
 #[derive(Debug, Clone)]
+pub struct MeshBuilder {
+    pub primitives: Vec<Primitive>,
+    pub triangle_indices: Vec<u32>,
+    pub vertices: Vec<Vertex>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Model {
     pub bones: Box<[Bone]>,
     pub bone_child_idx: Box<[u16]>,
@@ -48,6 +63,7 @@ pub struct Model {
     pub inv_world_transforms: Box<[Mat4]>,
 
     pub primitives: Box<[Primitive]>,
+    pub triangle_indices: Box<[u32]>,
     pub vertices: Box<[Vertex]>,
 }
 
@@ -99,12 +115,15 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
     }
 
     // get primitives / vertices ------------------------------------------------------
-    let mut primitives = Vec::with_capacity(256);
-    let mut vertices = Vec::with_capacity(8192);
+    let mut builder = MeshBuilder {
+        primitives: Vec::with_capacity(256),
+        triangle_indices: Vec::with_capacity(128),
+        vertices: Vec::with_capacity(8192),
+    };
 
     let mut dobj_idx = 0;
     for (i, jobj) in bone_jobjs.iter().enumerate() {
-        let prim_start = primitives.len() as _;
+        let prim_start = builder.primitives.len() as _;
         let mut prim_len = 0;
 
         if let Some(dobj) = jobj.get_dobj() {
@@ -116,7 +135,7 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
 
                 dobj_idx += 1;
                 for pobj in dobj.get_pobj().siblings() {
-                    prim_len += pobj.decode_primitives(&mut primitives, &mut vertices, &bone_jobjs);
+                    prim_len += pobj.decode_primitives(&mut builder, &bone_jobjs);
                 }
             }
         }
@@ -153,8 +172,9 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
         bone_child_idx: bone_child_idx.into_boxed_slice(),
         base_transforms: base_transforms.into_boxed_slice(),
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),
-        primitives: primitives.into_boxed_slice(),
-        vertices: vertices.into_boxed_slice(),
+        primitives: builder.primitives.into_boxed_slice(),
+        triangle_indices: builder.triangle_indices.into_boxed_slice(),
+        vertices: builder.vertices.into_boxed_slice(),
     };
 
     Ok((bone_jobjs.into_boxed_slice(), model))

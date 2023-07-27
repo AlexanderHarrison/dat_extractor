@@ -5,7 +5,7 @@ mod jobj;
 pub use jobj::JOBJ;
 
 mod extract_mesh;
-pub use extract_mesh::{Model, Bone, extract_model, Primitive, PrimitiveType, Vertex};
+pub use extract_mesh::{Model, Bone, extract_model, Primitive, MeshBuilder, PrimitiveType, Vertex};
 
 mod extract_anims;
 pub use extract_anims::{extract_anims, Animation, AnimationFrame};

@@ -40,6 +40,8 @@ pub enum InternalTextureFormat {
 pub fn extract_textures(jobjs: &[JOBJ]) -> Box<[Texture]> {
     // HSDScene.cs:98 (GetTOBJS)
 
+    let mut decoded = std::collections::HashSet::new();
+
     // holy mother of iterators!
     // hopefully the optimizer is ok with this...
     jobjs
@@ -49,7 +51,16 @@ pub fn extract_textures(jobjs: &[JOBJ]) -> Box<[Texture]> {
         .filter_map(|d| d.get_mobj())
         .filter_map(|m| m.get_tobj())
         .flat_map(|t| t.siblings())
-        .filter_map(|t| t.texture())
+        .filter_map(move |t| {
+            let data = t.hsd_image()?.get_buffer(0);
+            if decoded.get(data).is_none() {
+                decoded.insert(data);
+                t.texture()
+            } else {
+                println!("decoded already");
+                None
+            }
+        })
         .collect::<Vec<Texture>>()
         .into_boxed_slice()
 }
@@ -71,6 +82,10 @@ impl<'a> TOBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(TOBJ::new)
     }
 
+    pub fn hsd_image(&self) -> Option<HSDStruct<'a>> {
+        self.hsd_struct.try_get_reference(0x4C)
+    }
+
     // HSDScene.cs:194 (RefreshTextures)
     // HSD_TOBJ.cs:226 (GetDecodedImageData)
     // GXImageConverter.cs:77 (DecodeTPL)
@@ -79,7 +94,7 @@ impl<'a> TOBJ<'a> {
         
         let tlut_data = self.hsd_struct.try_get_reference(0x50);
         assert_eq!(tlut_data, None); // don't want to deal with this right now
-        let hsd_image = self.hsd_struct.try_get_reference(0x4C)?;
+        let hsd_image = self.hsd_image()?;
                                      
         let data_buffer = hsd_image.get_buffer(0x00);
 
@@ -195,7 +210,6 @@ fn decode_compressed_image(data: &[u8], width: usize, height: usize) -> Box<[u32
 
             let mode = ((data[off] as u32 & 0xFF) << 8) | (data[off + 1] as u32 & 0xFF) 
                 > ((data[off + 2] as u32 & 0xFF) << 8) | (data[off + 3] as u32 & 0xFF);
-            // matches
 
             if mode {
                 let mut r = (2 * get_r(c[0]) + get_r(c[1])) / 3;

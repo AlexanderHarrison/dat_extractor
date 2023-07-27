@@ -1,6 +1,7 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use crate::dat::{HSDStruct, HSDRootNode, Vertex, Primitive, PrimitiveType, textures::MOBJ};
+use crate::dat::{HSDStruct, HSDRootNode, Vertex, Primitive, PrimitiveType, MeshBuilder, 
+    textures::MOBJ};
 use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -223,11 +224,9 @@ impl<'a> POBJ<'a> {
 
     /// does not decode siblings.
     /// returns number of primitives decoded
-    //pub fn decode_primitives<'b>(&'b self, bone_jobjs: &[JOBJ<'a>]) -> Vec<Primitive> {
     pub fn decode_primitives<'b>(
         &'b self, 
-        primitives: &mut Vec<Primitive>, 
-        vertices: &mut Vec<Vertex>,
+        builder: &mut MeshBuilder,
         bone_jobjs: &[JOBJ<'a>],
     ) -> u16 {
         let attributes = self.get_attributes();
@@ -242,10 +241,11 @@ impl<'a> POBJ<'a> {
             let b = reader.read_byte();
             if b == 0 { break }
 
-            let vert_start = vertices.len() as _;
+            let vert_start = builder.vertices.len() as _;
             let primitive_type = PrimitiveType::from_u8(b).unwrap();
             let vert_len = reader.read_i16() as _;
 
+            // add vertices ------------------------------------------------
             for _ in 0..vert_len {
                 let mut pos = [0f32; 3];
                 let mut bones = [0u32; 4];
@@ -278,7 +278,6 @@ impl<'a> POBJ<'a> {
                     if attr.typ != AttributeType::GX_DIRECT {
                         let data = attr.get_decoded_data_at(index);
 
-                        #[allow(clippy::single_match)]
                         match attr.name {
                             AttributeName::GX_VA_POS => {
                                 // shapeset?? check GX_VertexAccessor:111
@@ -335,16 +334,39 @@ impl<'a> POBJ<'a> {
                     bones: bones.into(),
                     weights: weights.into(),
                 };
-                vertices.push(vertex);
+                builder.vertices.push(vertex);
             }
 
-            let primitive = Primitive {
-                vert_start,
-                vert_len,
-                primitive_type,
-            };
+            // add primitives ---------------------------------------------------
+            match primitive_type {
+                PrimitiveType::Triangles => {
+                    builder.primitives.push(Primitive::Triangles {
+                        vert_start,
+                        vert_len,
+                    })
+                }
+                PrimitiveType::TriangleStrip => {
+                    builder.primitives.push(Primitive::TriangleStrip {
+                        vert_start,
+                        vert_len,
+                    })
+                }
+                PrimitiveType::Quads => {
+                    let quad_count = vert_len / 4;
+                    builder.primitives.push(Primitive::IndexedTriangles {
+                        idx_start: builder.triangle_indices.len() as _,
+                        idx_len: quad_count as u32 * 6,
+                    });
+                    for i in 0..quad_count {
+                        let v = vert_start + i as u32 * 4;
+                        builder.triangle_indices.extend([
+                            v+0, v+1, v+2,
+                            v+2, v+3, v+0
+                        ]);
+                    }
+                }
+            }
 
-            primitives.push(primitive);
             prim_count += 1;
         }
 
