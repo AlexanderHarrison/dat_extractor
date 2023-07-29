@@ -1,6 +1,8 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use crate::dat::{HSDStruct, JOBJ};
+use crate::dat::{DOBJ, HSDStruct};
+
+use std::collections::HashMap;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct MOBJ<'a> {
@@ -37,33 +39,31 @@ pub enum InternalTextureFormat {
     CMP = 14, // only value used for fox
 }
 
-pub fn extract_textures(jobjs: &[JOBJ]) -> Box<[Texture]> {
-    // HSDScene.cs:98 (GetTOBJS)
+pub fn try_decode_texture<'a>(
+    cache: &mut HashMap<*const u8, u16>,
+    textures: &mut Vec<Texture>,
+    dobj: DOBJ<'a>
+) -> Option<u16> {
+    let mobj = dobj.get_mobj()?;
+    let tobj = mobj.get_tobj()?;
+    if tobj.get_sibling().is_some() {
+        todo!();
+    }
+    let data_ptr = tobj.image_buffer()?.as_ptr();
 
-    let mut decoded = std::collections::HashSet::new();
-
-    // holy mother of iterators!
-    // hopefully the optimizer is ok with this...
-    jobjs
-        .iter()
-        .filter_map(|j| j.get_dobj())
-        .flat_map(|d| d.siblings())
-        .filter_map(|d| d.get_mobj())
-        .filter_map(|m| m.get_tobj())
-        .flat_map(|t| t.siblings())
-        .filter_map(move |t| {
-            let data = t.hsd_image()?.get_buffer(0);
-            if decoded.get(data).is_none() {
-                decoded.insert(data);
-                t.texture()
-            } else {
-                println!("decoded already");
-                None
-            }
-        })
-        .collect::<Vec<Texture>>()
-        .into_boxed_slice()
+    use std::collections::hash_map::Entry;
+    match cache.entry(data_ptr) {
+        Entry::Occupied(entry) => Some(*entry.get()),
+        Entry::Vacant(entry) => {
+            let texture = tobj.texture().unwrap();
+            let texture_idx = textures.len() as _;
+            textures.push(texture);
+            entry.insert(texture_idx);
+            Some(texture_idx)
+        }
+    }
 }
+
 
 impl<'a> TOBJ<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
@@ -82,8 +82,9 @@ impl<'a> TOBJ<'a> {
         self.hsd_struct.try_get_reference(0x04).map(TOBJ::new)
     }
 
-    pub fn hsd_image(&self) -> Option<HSDStruct<'a>> {
-        self.hsd_struct.try_get_reference(0x4C)
+    // image buffers are shared between multiple tobjs, need to expose this to deduplicate
+    pub fn image_buffer(&self) -> Option<&'a [u8]> {
+        self.hsd_struct.try_get_reference(0x4C).map(|t| t.get_buffer(0x00))
     }
 
     // HSDScene.cs:194 (RefreshTextures)
@@ -94,7 +95,7 @@ impl<'a> TOBJ<'a> {
         
         let tlut_data = self.hsd_struct.try_get_reference(0x50);
         assert_eq!(tlut_data, None); // don't want to deal with this right now
-        let hsd_image = self.hsd_image()?;
+        let hsd_image = self.hsd_struct.try_get_reference(0x4C)?;
                                      
         let data_buffer = hsd_image.get_buffer(0x00);
 

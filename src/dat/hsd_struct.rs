@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+//use std::collections::HashMap;
+use ahash::{HashMap, HashMapExt};
 use std::cell::RefCell;
 use std::rc::Rc;
 
 #[derive(Eq, Clone, Debug)]
 pub struct HSDStruct<'a> {
     pub data: &'a [u8],
-    pub references: Rc<RefCell<HashMap<usize, HSDStruct<'a>>>>,
+    references: Rc<RefCell<HashMap<usize, HSDStruct<'a>>>>,
 }
 
 impl<'a> std::hash::Hash for HSDStruct<'a> {

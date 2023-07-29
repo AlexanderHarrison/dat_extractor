@@ -1,4 +1,4 @@
-use crate::dat::{Model, FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError, PrimitiveType};
+use crate::dat::{Vertex, Model, FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError, Primitive};
 use glam::f32::{Quat, Mat4, Vec3, Vec4};
 use glam::Vec4Swizzles;
 
@@ -35,77 +35,82 @@ impl AnimationFrame {
         }
     }
 
-    //pub fn obj(&self, model: &Model) {
-    //    let mut i = 1;
-    //    for (bone_idx, bone) in model.bones.iter().enumerate() {
-    //        let p_i = bone.prim_start as usize;
-    //        let p_len = bone.prim_len as usize;
+    pub fn obj(&self, model: &Model) {
+        let mut i = 1;
+        for (bone_idx, bone) in model.bones.iter().enumerate() {
+            let pg_i = bone.pgroup_start as usize;
+            let pg_len = bone.pgroup_len as usize;
 
-    //        for p in model.primitives[p_i..p_i+p_len].iter() {
-    //            let v_i = p.vert_start as usize;
-    //            let v_len = p.vert_len as usize;
-    //            let mut points = Vec::with_capacity(v_len);
+            for pgroup in model.primitive_groups[pg_i..pg_i+pg_len].iter() {
+                let p_i = pgroup.prim_start as usize;
+                let p_len = pgroup.prim_len as usize;
 
-    //            for v in model.vertices[v_i..v_i+v_len].iter() {
-    //                let t = Vec4::from((v.pos, 1.0));
+                for p in model.primitives[p_i..p_i+p_len].iter().copied() {
+                    let vertices: Box<dyn Iterator<Item=Vertex>> = match p {
+                        Primitive::Triangles { vert_start, vert_len } => {
+                            let v_i = vert_start as usize;
+                            let v_len = vert_len as usize;
+                            Box::new(model.vertices[v_i..v_i+v_len].iter().copied())
+                        }
+                        Primitive::TriangleStrip { vert_start, vert_len } => {
+                            let v_i = vert_start as usize;
+                            let v_len = vert_len as usize;
+                            Box::new(model.vertices[v_i..v_i+v_len].iter().copied())
+                        }
+                    };
 
-    //                let awt = self.animated_world_transforms[bone_idx];
-    //                let t2 = awt * t;
-    //                                 
-    //                let pos = if v.weights.x == 1.0 { // good
-    //                    let t = self.animated_world_transforms[v.bones.x as usize] * t2;
-    //                    t.xyz()
-    //                } else if v.weights != Vec4::ZERO {
-    //                    let v1 = (self.animated_bind_transforms[v.bones.x as usize] * v.weights.x) * t;
-    //                    let v2 = (self.animated_bind_transforms[v.bones.y as usize] * v.weights.y) * t;
-    //                    let v3 = (self.animated_bind_transforms[v.bones.z as usize] * v.weights.z) * t;
-    //                    let v4 = (self.animated_bind_transforms[v.bones.w as usize] * v.weights.w) * t;
-    //                    (v1 + v2 + v3 + v4).xyz()
-    //                } else {
-    //                    t2.xyz()
-    //                };
-    //                
-    //                points.push(pos);
-    //            }
+                    let mut points = Vec::new();
 
-    //            match p.primitive_type {
-    //                PrimitiveType::Triangles => {
-    //                    for t in points.chunks_exact(3) {
-    //                        println!("v {} {} {}", t[0].x, t[0].y, t[0].z);
-    //                        println!("v {} {} {}", t[1].x, t[1].y, t[1].z);
-    //                        println!("v {} {} {}", t[2].x, t[2].y, t[2].z);
+                    for v in vertices {
+                        let t = Vec4::from((v.pos, 1.0));
 
-    //                        println!("f {} {} {}", i, i+1, i+2);
-    //                        i += 3;
-    //                    }
-    //                }
-    //                PrimitiveType::TriangleStrip => {
-    //                    println!("v {} {} {}", points[0].x, points[0].y, points[0].z);
-    //                    println!("v {} {} {}", points[1].x, points[1].y, points[1].z);
+                        let awt = self.animated_world_transforms[bone_idx];
+                        let t2 = awt * t;
+                                         
+                        let pos = if v.weights.x == 1.0 { // good
+                            let t = self.animated_world_transforms[v.bones.x as usize] * t2;
+                            t.xyz()
+                        } else if v.weights != Vec4::ZERO {
+                            let v1 = (self.animated_bind_transforms[v.bones.x as usize] * v.weights.x) * t;
+                            let v2 = (self.animated_bind_transforms[v.bones.y as usize] * v.weights.y) * t;
+                            let v3 = (self.animated_bind_transforms[v.bones.z as usize] * v.weights.z) * t;
+                            let v4 = (self.animated_bind_transforms[v.bones.w as usize] * v.weights.w) * t;
+                            (v1 + v2 + v3 + v4).xyz()
+                        } else {
+                            t2.xyz()
+                        };
+                        
+                        points.push(pos);
+                    }
 
-    //                    for p in &points[2..] {
-    //                        println!("v {} {} {}", p.x, p.y, p.z);
+                    match p {
+                        Primitive::Triangles { .. } => {
+                            for t in points.chunks_exact(3) {
+                                println!("v {} {} {}", t[0].x, t[0].y, t[0].z);
+                                println!("v {} {} {}", t[1].x, t[1].y, t[1].z);
+                                println!("v {} {} {}", t[2].x, t[2].y, t[2].z);
 
-    //                        println!("f {} {} {}", i, i+1, i+2);
-    //                        i += 1;
-    //                    }
-    //                    i += 2;
-    //                }
-    //                PrimitiveType::Quads => {
-    //                    for t in points.chunks_exact(4) {
-    //                        println!("v {} {} {}", t[0].x, t[0].y, t[0].z);
-    //                        println!("v {} {} {}", t[1].x, t[1].y, t[1].z);
-    //                        println!("v {} {} {}", t[2].x, t[2].y, t[2].z);
-    //                        println!("v {} {} {}", t[3].x, t[3].y, t[3].z);
+                                println!("f {} {} {}", i, i+1, i+2);
+                                i += 3;
+                            }
+                        }
+                        Primitive::TriangleStrip { .. } => {
+                            println!("v {} {} {}", points[0].x, points[0].y, points[0].z);
+                            println!("v {} {} {}", points[1].x, points[1].y, points[1].z);
 
-    //                        println!("f {} {} {} {3}", i, i+1, i+2, i+3);
-    //                        i += 4;
-    //                    }
-    //                }
-    //            }
-    //        }
-    //    }
-    //}
+                            for p in &points[2..] {
+                                println!("v {} {} {}", p.x, p.y, p.z);
+
+                                println!("f {} {} {}", i, i+1, i+2);
+                                i += 1;
+                            }
+                            i += 2;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]

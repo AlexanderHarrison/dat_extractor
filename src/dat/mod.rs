@@ -2,7 +2,7 @@ mod hsd_struct;
 use hsd_struct::HSDStruct;
 
 mod jobj;
-pub use jobj::JOBJ;
+pub use jobj::{DOBJ, JOBJ};
 
 mod extract_mesh;
 pub use extract_mesh::{Model, Bone, extract_model, Primitive, MeshBuilder, PrimitiveType, Vertex};
@@ -15,7 +15,7 @@ pub use fighter_data::{FighterData, FighterAction, parse_fighter_data};
 
 mod textures;
 
-use std::collections::{HashMap, HashSet};
+use ahash::{HashMap, HashSet, HashMapExt, HashSetExt};
 use std::rc::Rc;
 
 #[derive(Copy, Clone, Debug)]
@@ -63,9 +63,9 @@ impl<'a> HSDRawFile<'a> {
     /// This is straight up copied from HSDRaw.
     /// It works and I do not want to ever look at this again.
     pub fn open(r: Stream<'a>) -> Self {
-        let mut struct_cache: Vec<HSDStruct> = Vec::new();
-        let mut struct_cache_to_offset: HashMap<HSDStruct, usize> = HashMap::new();
-        let mut roots: Vec<HSDRootNode> = Vec::new();
+        let mut struct_cache: Vec<HSDStruct> = Vec::with_capacity(256);
+        let mut struct_cache_to_offset: HashMap<HSDStruct, usize> = HashMap::with_capacity(256);
+        let mut roots: Vec<HSDRootNode> = Vec::with_capacity(2);
         let mut references: Vec<HSDRootNode> = Vec::new();
 
         // Parse Header -----------------------------
@@ -77,9 +77,9 @@ impl<'a> HSDRawFile<'a> {
         let version_chars = r.read_chars(4);
 
         // Parse Relocation Table -----------------------------
-        let mut offsets: Vec<usize> = Vec::new();
-        let mut offset_contain: HashSet<usize> = HashSet::new();
-        let mut reloc_offsets: HashMap<usize, usize> = HashMap::new();
+        let mut offsets: Vec<usize> = Vec::with_capacity(256);
+        let mut offset_contain: HashSet<usize> = HashSet::with_capacity(256);
+        let mut reloc_offsets: HashMap<usize, usize> = HashMap::with_capacity(256);
 
         offsets.push(reloc_offset);
 
@@ -106,7 +106,6 @@ impl<'a> HSDRawFile<'a> {
                 if object_off % 4 == 0 {
                     offsets.push(object_off);
                 } else {
-                    //Debug.WriteLine(object_off + " " + (reloc_offset + 4 * i).ToString("X"));
                     dbg!()
                 }
             }
@@ -114,8 +113,8 @@ impl<'a> HSDRawFile<'a> {
 
         // Parse Roots ---------------------------------
         r.set_cursor(reloc_offset + reloc_count * 4);
-        let mut root_offsets: Vec<usize> = Vec::new();
-        let mut root_strings: Vec<&'a str> = Vec::new();
+        let mut root_offsets: Vec<usize> = Vec::with_capacity(2);
+        let mut root_strings: Vec<&'a str> = Vec::with_capacity(2);
         let mut ref_offsets: Vec<usize> = Vec::new();
         let mut ref_strings: Vec<&'a str> = Vec::new();
         let string_start = r.cursor() + (ref_count + root_count) * 8;
@@ -180,9 +179,9 @@ impl<'a> HSDRawFile<'a> {
         // Split Raw Struct Data --------------------------
         offsets.sort();
 
-        let mut offset_to_struct      : HashMap<usize, HSDStruct> = HashMap::new();
-        let mut offset_to_offsets     : HashMap<usize, Vec<usize>>  = HashMap::new();
-        let mut offset_to_inner_offsets: HashMap<usize, Vec<usize>>  = HashMap::new();
+        let mut offset_to_struct      : HashMap<usize, HSDStruct> = HashMap::with_capacity(256);
+        let mut offset_to_offsets     : HashMap<usize, Vec<usize>>  = HashMap::with_capacity(256);
+        let mut offset_to_inner_offsets: HashMap<usize, Vec<usize>>  = HashMap::with_capacity(256);
 
         let mut relockeys = reloc_offsets.keys().copied().collect::<Vec<usize>>();
         relockeys.sort();
@@ -219,7 +218,6 @@ impl<'a> HSDRawFile<'a> {
                 .or_insert_with(|| HSDStruct::new(data, HashMap::new()));
         }
 
-
         let mut orphans: HashSet<HSDStruct> = HashSet::new();
 
         for s in offset_to_struct.values() {
@@ -253,7 +251,6 @@ impl<'a> HSDRawFile<'a> {
         // set roots
         for i in 0..root_offsets.len() {
             let s = &offset_to_struct[&root_offsets[i]];
-            //let a = Self::GuessAccessor(&root_strings[i], s.clone());
 
             roots.push(HSDRootNode { root_string: root_strings[i], hsd_struct: s.clone() });
 
@@ -293,6 +290,22 @@ impl<'a> HSDRawFile<'a> {
                 }
             }
         }
+
+        //println!("struct_cache              {}", struct_cache.len());
+        //println!("struct_cache_to_offset    {}", struct_cache_to_offset.len());
+        //println!("roots                     {}", roots.len());
+        //println!("references                {}", references.len());
+        //println!("offsets                   {}", offsets.len());
+        //println!("offset_contain            {}", offset_contain.len());
+        //println!("reloc_offsets             {}", reloc_offsets.len());
+        //println!("offset_to_struct          {}", offset_to_struct.len());
+        //println!("offset_to_offsets         {}", offset_to_offsets.len());
+        //println!("offset_to_inner_offsets   {}", offset_to_inner_offsets.len());
+        //println!("orphans                   {}", orphans.len());
+        //println!("root_offsets              {}", root_offsets.len());
+        //println!("root_strings              {}", root_strings.len());
+        //println!("ref_offsets               {}", ref_offsets.len());
+        //println!("ref_strings               {}", ref_strings.len());
 
         Self {
             version_chars,

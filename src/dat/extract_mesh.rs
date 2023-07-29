@@ -1,6 +1,8 @@
-use crate::dat::{HSDRawFile, JOBJ, DatExtractError};
+use crate::dat::{HSDRawFile, JOBJ, DatExtractError, textures::{try_decode_texture, Texture}};
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
+
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Bone {
@@ -8,8 +10,16 @@ pub struct Bone {
     pub child_start: u16,
     pub child_len: u16, // zero if none
 
+    pub pgroup_start: u16,
+    pub pgroup_len: u16, // zero if none
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+pub struct PrimitiveGroup {
+    pub texture_idx: Option<u16>,
+
     pub prim_start: u16,
-    pub prim_len: u16, // zero if none
+    pub prim_len: u16,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -33,10 +43,6 @@ pub enum Primitive {
         vert_start: u32,
         vert_len: u16,
     },
-    IndexedTriangles {
-        idx_start: u32,
-        idx_len: u32,
-    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -51,7 +57,6 @@ pub struct Vertex {
 #[derive(Debug, Clone)]
 pub struct MeshBuilder {
     pub primitives: Vec<Primitive>,
-    pub triangle_indices: Vec<u32>,
     pub vertices: Vec<Vertex>,
 }
 
@@ -62,13 +67,15 @@ pub struct Model {
     pub base_transforms: Box<[Mat4]>,
     pub inv_world_transforms: Box<[Mat4]>,
 
+    pub primitive_groups: Box<[PrimitiveGroup]>,
+    pub textures: Box<[Texture]>,
+
     pub primitives: Box<[Primitive]>,
-    pub triangle_indices: Box<[u32]>,
     pub vertices: Box<[Vertex]>,
 }
 
 /// returns the model's jobjs and the extracted model
-pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ<'a>]>, Model), DatExtractError> {
+pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);
     let mut bone_jobjs = Vec::with_capacity(128);
@@ -100,8 +107,8 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
             child_len,
 
             // set later
-            prim_start: 0,
-            prim_len: 0,
+            pgroup_start: 0,
+            pgroup_len: 0,
         };
         bone_idx
     }
@@ -114,35 +121,54 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
         set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
     }
 
-    // get primitives / vertices ------------------------------------------------------
+    // get meshes / primitives / vertices ------------------------------------------------------
     let mut builder = MeshBuilder {
         primitives: Vec::with_capacity(256),
-        triangle_indices: Vec::with_capacity(128),
         vertices: Vec::with_capacity(8192),
     };
 
+    let mut pgroups = Vec::with_capacity(128);
+    let mut textures = Vec::with_capacity(64);
+
+    // cache image data ptrs to prevent decoding textures multiple times
+    let mut texture_cache = HashMap::with_capacity(64);
+
     let mut dobj_idx = 0;
     for (i, jobj) in bone_jobjs.iter().enumerate() {
-        let prim_start = builder.primitives.len() as _;
-        let mut prim_len = 0;
+        let pgroup_start = pgroups.len() as _;
+        let mut pgroup_len = 0;
 
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
-                if 36 <= dobj_idx && dobj_idx <= 67 { // skip low poly mesh
+                // hack to skip low poly mesh
+                if 36 <= dobj_idx && dobj_idx <= 67 {
                     dobj_idx += 1;
                     continue;
                 }
-
                 dobj_idx += 1;
+
+                pgroup_len += 1;
+
+                let prim_start = builder.primitives.len() as _;
+                let mut prim_len = 0;
+
                 for pobj in dobj.get_pobj().siblings() {
                     prim_len += pobj.decode_primitives(&mut builder, &bone_jobjs);
                 }
+
+                let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
+
+                pgroups.push(PrimitiveGroup {
+                    texture_idx,
+                    prim_start,
+                    prim_len,
+                })
             }
         }
 
         let bone = &mut bones[i];
-        bone.prim_start = prim_start;
-        bone.prim_len = prim_len;
+        bone.pgroup_start = pgroup_start;
+        bone.pgroup_len = pgroup_len;
     }
 
     // get transforms ------------------------------------------------------
@@ -172,12 +198,13 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<(Box<[JOBJ
         bone_child_idx: bone_child_idx.into_boxed_slice(),
         base_transforms: base_transforms.into_boxed_slice(),
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),
+        primitive_groups: pgroups.into_boxed_slice(),
+        textures: textures.into_boxed_slice(),
         primitives: builder.primitives.into_boxed_slice(),
-        triangle_indices: builder.triangle_indices.into_boxed_slice(),
         vertices: builder.vertices.into_boxed_slice(),
     };
 
-    Ok((bone_jobjs.into_boxed_slice(), model))
+    Ok(model)
 }
 
 //impl Model {

@@ -236,6 +236,8 @@ impl<'a> POBJ<'a> {
 
         let reader = crate::dat::Stream::new(buffer);
 
+        let mut vertex_cache = Vec::with_capacity(32);
+
         let mut prim_count = 0;
         while !reader.finished() {
             let b = reader.read_byte();
@@ -352,18 +354,25 @@ impl<'a> POBJ<'a> {
                     })
                 }
                 PrimitiveType::Quads => {
-                    let quad_count = vert_len / 4;
-                    builder.primitives.push(Primitive::IndexedTriangles {
-                        idx_start: builder.triangle_indices.len() as _,
-                        idx_len: quad_count as u32 * 6,
-                    });
-                    for i in 0..quad_count {
-                        let v = vert_start + i as u32 * 4;
-                        builder.triangle_indices.extend([
-                            v+0, v+1, v+2,
-                            v+2, v+3, v+0
-                        ]);
+                    // hack: reform vertices to form quads into triangles (glow doesn't use quads)
+                    // this is inefficient, but quads are fairly uncommon
+                    
+                    vertex_cache.clear();
+                    for v in builder.vertices[vert_start as usize..].iter().copied() {
+                        vertex_cache.push(v);
                     }
+                    builder.vertices.truncate(vert_start as usize);
+
+                    for vs in vertex_cache.chunks_exact(4) {
+                        let [v1, v2, v3, v4]: [Vertex; 4] = vs.try_into().unwrap();
+                        builder.vertices.extend([v1, v2, v3]);
+                        builder.vertices.extend([v3, v4, v1]);
+                    }
+
+                    builder.primitives.push(Primitive::Triangles {
+                        vert_start,
+                        vert_len: vert_len / 4 * 6, // 6 vertices per quad
+                    });
                 }
             }
 

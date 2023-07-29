@@ -21,28 +21,8 @@ fn main() {
         }
     }
 
-    //for m in model.inv_world_transforms.iter() {
-    //    println!("{:.4}", m.x_axis.x);
-    //    println!("{:.4}", m.x_axis.y);
-    //    println!("{:.4}", m.x_axis.z);
-    //    println!("{:.4}", m.x_axis.w);
-
-    //    println!("{:.4}", m.y_axis.x);
-    //    println!("{:.4}", m.y_axis.y);
-    //    println!("{:.4}", m.y_axis.z);
-    //    println!("{:.4}", m.y_axis.w);
-
-    //    println!("{:.4}", m.z_axis.x);
-    //    println!("{:.4}", m.z_axis.y);
-    //    println!("{:.4}", m.z_axis.z);
-    //    println!("{:.4}", m.z_axis.w);
-
-    //    println!("{:.4}", m.w_axis.x);
-    //    println!("{:.4}", m.w_axis.y);
-    //    println!("{:.4}", m.w_axis.z);
-    //    println!("{:.4}", m.w_axis.w);
-    //}
-    //return;
+    //let frame = dat_tools::dat::AnimationFrame::new_t_pose(&model);
+    frame.obj(&model);
 
     //let bones = &*data.skeleton.bones;
     ////data.skeleton.bone_tree_roots[0].inspect_each(&mut |b| println!("{}", b.index)); return;
@@ -77,9 +57,6 @@ fn main() {
     //        }
     //    }
     //}
-
-    //let frame = dat_tools::dat::AnimationFrame::new_t_pose(&model);
-    frame.obj(&model);
 
     //for anim in frame.animated_bind_transforms.iter() {
     //    println!("{:.4}", anim.x_axis[0].abs());
