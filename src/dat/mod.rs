@@ -8,7 +8,7 @@ mod extract_mesh;
 pub use extract_mesh::{Model, Bone, extract_model, Primitive, MeshBuilder, PrimitiveType, Vertex};
 
 mod extract_anims;
-pub use extract_anims::{extract_anims, Animation, AnimationFrame};
+pub use extract_anims::{demangle_anim_name, extract_anims, Animation, AnimationFrame};
 
 mod fighter_data;
 pub use fighter_data::{FighterData, FighterAction, parse_fighter_data};
@@ -179,8 +179,8 @@ impl<'a> HSDRawFile<'a> {
         // Split Raw Struct Data --------------------------
         offsets.sort();
 
-        let mut offset_to_struct      : HashMap<usize, HSDStruct> = HashMap::with_capacity(256);
-        let mut offset_to_offsets     : HashMap<usize, Vec<usize>>  = HashMap::with_capacity(256);
+        let mut offset_to_struct: HashMap<usize, HSDStruct> = HashMap::with_capacity(256);
+        let mut offset_to_offsets: HashMap<usize, Vec<usize>>  = HashMap::with_capacity(256);
         let mut offset_to_inner_offsets: HashMap<usize, Vec<usize>>  = HashMap::with_capacity(256);
 
         let mut relockeys = reloc_offsets.keys().copied().collect::<Vec<usize>>();
@@ -196,7 +196,6 @@ impl<'a> HSDRawFile<'a> {
 
                 let min = binary_search(offsets[i], &relockeys);
                 let max = binary_search(offsets[i + 1], &relockeys).map(|x| x+1);
-
 
                 if let Some(min) = min {
                     if let Some(max) = max {
@@ -327,6 +326,7 @@ impl<'a> HSDRawFile<'a> {
     }
 }
 
+#[derive(Clone)]
 pub struct Stream<'a> {
     pub data: &'a [u8],
     

@@ -2,6 +2,15 @@ use crate::dat::{Vertex, Model, FighterAction, HSDRawFile, Stream, HSDStruct, Da
 use glam::f32::{Quat, Mat4, Vec3, Vec4};
 use glam::Vec4Swizzles;
 
+pub fn demangle_anim_name(name: &str) -> Option<&str> {
+    // PlyFox5K_Share_ACTION_WallDamage_figatree => WallDamage
+
+    const PREFIX: &str = "_ACTION_";
+    let start = name.find(PREFIX)?;
+    let end = name.rfind("_figatree")?;
+    Some(&name[start+PREFIX.len()..end])
+}
+
 #[derive(Clone, Debug)]
 pub struct AnimationFrame {
     // one for each bone
@@ -32,6 +41,21 @@ impl AnimationFrame {
             animated_transforms,
             animated_world_transforms: animated_world_transforms.into_boxed_slice(),
             animated_bind_transforms: animated_bind_transforms.into_boxed_slice(),
+        }
+    }
+
+    pub fn t_pose(&mut self, model: &Model) {
+        self.animated_transforms.copy_from_slice(&model.base_transforms);
+
+        for (i, base_transform) in model.base_transforms.iter().enumerate() {
+            let world_transform = match model.bones[i].parent {
+                Some(p_i) => self.animated_world_transforms[p_i as usize] * *base_transform,
+                None => *base_transform
+            };
+
+            self.animated_world_transforms[i] = world_transform;
+            let bind_transform = world_transform * model.inv_world_transforms[i];
+            self.animated_bind_transforms[i] = bind_transform;
         }
     }
 
