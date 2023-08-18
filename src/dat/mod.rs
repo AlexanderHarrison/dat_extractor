@@ -5,13 +5,13 @@ mod jobj;
 pub use jobj::{DOBJ, JOBJ};
 
 mod extract_mesh;
-pub use extract_mesh::{Model, Bone, extract_model, Primitive, MeshBuilder, PrimitiveType, Vertex};
+pub use extract_mesh::{Model, Bone, extract_model, extract_stage, Primitive, MeshBuilder, PrimitiveType, Vertex};
 
 mod extract_anims;
 pub use extract_anims::{demangle_anim_name, extract_anims, Animation, AnimationFrame};
 
 mod fighter_data;
-pub use fighter_data::{FighterData, FighterAction, parse_fighter_data};
+pub use fighter_data::{FighterData, FighterAction, parse_actions, parse_fighter_data};
 
 mod textures;
 

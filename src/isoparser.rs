@@ -13,8 +13,8 @@ pub enum ISOParseError {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DatFileLocation {
-    pub start_offset: u64,
-    pub size: usize,
+    start_offset: u64,
+    size: usize,
 }
 
 #[derive(Debug)]
@@ -46,19 +46,17 @@ impl ISODatFiles {
         })
     }
 
-    pub fn find_file(&self, name: &str) -> Option<DatFileLocation> {
+    fn find_file(&self, name: &str) -> Option<DatFileLocation> {
         self.files.iter()
             .find(|(nm, _)| nm.as_ref() == name)
             .map(|(_, loc)| *loc)
     }
 
     /// ISOParseError::FileNotFound if name is not in file system
-    /// If already loaded, nothing occurs
-    pub fn load_file_by_name(&mut self, name: &str) -> Result<DatFile, ISOParseError> {
-        use std::collections::hash_map::Entry;
-
+    pub fn read_file(&mut self, name: &str) -> Result<DatFile, ISOParseError> {
         let location = self.find_file(name).ok_or(ISOParseError::FileNotFound)?;
 
+        use std::collections::hash_map::Entry;
         let dat = match self.open_files.entry(location) {
             Entry::Occupied(entry) => {
                 entry.get().clone()
@@ -77,12 +75,8 @@ impl ISODatFiles {
         Ok(dat)
     }
 
-    pub fn load_file(&self, location: DatFileLocation) -> DatFile {
-        self.open_files[&location].clone()
-    }
-
-    pub fn extract_file(&mut self, location: DatFileLocation, save_path: &std::path::Path) -> Result<(), io::Error> {
-        let dat = self.load_file(location);
+    pub fn extract_file(&mut self, name: &str, save_path: &std::path::Path) -> Result<(), io::Error> {
+        let dat = self.read_file(name).map_err(<ISOParseError as Into<io::Error>>::into)?;
         std::fs::write(save_path, dat.data)
     }
 }
@@ -153,4 +147,13 @@ fn read_filename(mut iso: &File, filename_offset: u64) -> Result<Box<str>, ISOPa
     iso.seek(SeekFrom::Start(return_offset)).map_err(|_| ISOParseError::InvalidISO)?;
 
     Ok(s)
+}
+
+impl Into<io::Error> for ISOParseError {
+    fn into(self) -> io::Error {
+        match self {
+            ISOParseError::FileNotFound => io::Error::from(io::ErrorKind::NotFound),
+            ISOParseError::InvalidISO => io::Error::from(io::ErrorKind::InvalidData),
+        }
+    }
 }

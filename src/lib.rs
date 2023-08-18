@@ -25,20 +25,20 @@ pub fn get_fighter_data(
     let anim_filename = character_animation_filename(character);
     let model_filename = character_model_filename(character_colour);
 
-    let base_dat = files.load_file_by_name(data_filename)?;
-    let anim_dat = files.load_file_by_name(anim_filename)?;
-    let model_dat = files.load_file_by_name(model_filename)?;
+    let base_dat = files.read_file(data_filename)?;
+    let anim_dat = files.read_file(anim_filename)?;
+    let model_dat = files.read_file(model_filename)?;
 
     dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat)
         .ok_or(ISOParseError::InvalidISO)
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CharacterColour {
     Fox(FoxColour)
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum FoxColour {
     Neutral = 0,
     Lavender = 1,

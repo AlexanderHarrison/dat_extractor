@@ -626,9 +626,11 @@ impl AnimTrack {
                 let left_frame = self.keys[left].frame;
                 let right_frame = self.keys[right].frame;
 
-                let value = lerp(left_value, right_value, left_frame, right_frame, frame);
+                let mut value = lerp(left_value, right_value, left_frame, right_frame, frame);
 
-                assert!(!value.is_nan());
+                if value.is_nan() {
+                    value = 0.0 // Occurs occasionally, this is what StudioSB does
+                }
 
                 value
             },
@@ -640,9 +642,11 @@ impl AnimTrack {
                 let left_frame = self.keys[left].frame;
                 let right_frame = self.keys[right].frame;
 
-                let value = hermite(frame, left_frame, right_frame, left_tan, right_tan, left_value, right_value);
+                let mut value = hermite(frame, left_frame, right_frame, left_tan, right_tan, left_value, right_value);
 
-                assert!(!value.is_nan());
+                if value.is_nan() {
+                    value = 0.0 // Occurs occasionally, this is what StudioSB does
+                }
 
                 value
             }

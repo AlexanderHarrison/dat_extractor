@@ -34,6 +34,15 @@ impl<'a> HSDStruct<'a> {
         }
     }
 
+    /// stride is length of HSDStruct I think
+    // HSD_Accessor.cs:467 (HSDArrayAccessor<T>)
+    pub fn get_array(&self, stride: usize, loc: usize) -> impl Iterator<Item=HSDStruct<'a>> {
+        let data = self.get_reference(loc);
+        let len = data.len() / stride;
+
+        (0..len).map(move |i| data.get_embedded_struct(stride * i, stride))
+    }
+
     pub fn get_embedded_struct<'b>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {
         let data = self.get_bytes(loc, len);
 

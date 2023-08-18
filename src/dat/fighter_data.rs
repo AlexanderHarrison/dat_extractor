@@ -1,6 +1,6 @@
 use crate::dat::{
-    HSDStruct, DatFile, Stream, Model,
-    HSDRawFile, Animation, extract_anims, extract_mesh::extract_model,
+    HSDStruct, DatFile, Model,
+    HSDRawFile, Animation, extract_anims, extract_model,
 };
 use crate::parse_string;
 
@@ -21,8 +21,7 @@ pub struct FighterAction {
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
 pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
-    let stream = Stream::new(&fighter_dat.data);
-    let fighter_hsdfile = HSDRawFile::open(stream);
+    let fighter_hsdfile = HSDRawFile::new(fighter_dat);
 
     let name = fighter_hsdfile.roots[0].root_string;
     if !name.starts_with("ftData") || name.contains("Copy") {
@@ -30,7 +29,8 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     }
 
     let actions = parse_actions(&fighter_hsdfile)?;
-    let animations = extract_anims(anim_dat, actions).unwrap(); // TODO
+    let animations = extract_anims(anim_dat, actions).ok()?;
+
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_model(&parsed_model_dat).ok()?;
 

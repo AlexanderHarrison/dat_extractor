@@ -23,6 +23,7 @@ pub struct POBJ<'a> {
 pub struct Attribute<'a> {
     pub name: AttributeName,
     pub typ: AttributeType,
+    pub comp_type: CompType,
     pub hsd_struct: HSDStruct<'a>,
 }
 
@@ -58,6 +59,7 @@ impl<'a> Attribute<'a> {
         Self { 
             name: AttributeName::from_u8(hsd_struct.get_i32(0x00) as u8),
             typ: AttributeType::from_u8(hsd_struct.get_i32(0x04) as u8),
+            comp_type: CompType::from_u8(hsd_struct.get_i32(0x0C) as u8),
             hsd_struct,
         }
     }
@@ -68,7 +70,6 @@ impl<'a> Attribute<'a> {
             //return GetColorAt(index);
         }
 
-        let comp_type = self.hsd_struct.get_i32(0x0C);
         let stride = self.hsd_struct.get_i16(0x12) as usize;
         let offset = stride * loc;
 
@@ -76,40 +77,38 @@ impl<'a> Attribute<'a> {
 
         let mut data = Vec::new();
 
-        match comp_type {
-            0 => { // UInt8
+        match self.comp_type {
+            CompType::UInt8 => {
                 for i in 0..stride {
                     let f = buffer.get_i8(offset + i) as u8 as f32; 
                     data.push(f);
                 }
             } 
-            1 => { // Int8
+            CompType::Int8 => {
                 for i in 0..stride {
                     let f = buffer.get_i8(offset + i) as f32; 
                     data.push(f);
                 }
             }
-            2 => { // UInt16,
+            CompType::UInt16 => { 
                 for i in 0..(stride / 2) {
                     let f = buffer.get_i16(offset + i*2) as u16 as f32; 
                     data.push(f);
                 }
             }
-            3 => { // Int16 ,
+            CompType::Int16 => { // Int16 ,
                 for i in 0..(stride / 2) {
                     let f = buffer.get_i16(offset + i*2) as f32; 
                     data.push(f);
                 }
             }
-            4 => { // Float ,
+            CompType::Float => {
                 for i in 0..(stride / 4) {
                     let f = buffer.get_f32(offset + i*4);
                     data.push(f);
                 }
             }
-                    
-            //5 => {} // Unused,
-            _ => panic!("invalid comp type"),
+            CompType::Unused => panic!("invalid comp type"),
         }
 
 
@@ -254,6 +253,7 @@ impl<'a> POBJ<'a> {
                 let mut weights = [0f32; 4];
                 let mut tex0 = [0f32; 2];
                 let mut normal = [0f32; 3];
+                let mut colour = [0f32; 4];
 
                 for attr in attributes.iter() {
                     if attr.name == AttributeName::GX_VA_NULL {
@@ -264,7 +264,8 @@ impl<'a> POBJ<'a> {
                         // check GX_PrimitiveGroup.Read
                         AttributeType::GX_DIRECT => {
                             if attr.name == AttributeName::GX_VA_CLR0 {
-                                todo!();
+                                colour = read_direct_colour(&reader, attr.comp_type);
+                                continue;
                             } else if attr.name == AttributeName::GX_VA_CLR1 {
                                 todo!();
                             } else { 
@@ -335,6 +336,7 @@ impl<'a> POBJ<'a> {
                     normal: normal.into(),
                     bones: bones.into(),
                     weights: weights.into(),
+                    colour: colour.into(),
                 };
                 builder.vertices.push(vertex);
             }
@@ -381,6 +383,66 @@ impl<'a> POBJ<'a> {
 
         prim_count
     }
+}
+
+// GX/GX_PrimitiveGroup.cs:107 (ReadDirectGXColor)
+fn read_direct_colour(reader: &crate::dat::Stream<'_>, comp_type: CompType) -> [f32; 4] {
+    let b1: u8;
+    let b2: u8;
+    let b3: u8;
+    let b4: u8;
+
+    match comp_type {
+        CompType::UInt8 => { // GX_RGB565
+            let b = reader.read_i16();
+            b1 = ((((b >> 11) & 0x1F) << 3) | (((b >> 11) & 0x1F) >> 2)) as u8;
+            b2 = ((((b >> 5) & 0x3F) << 2) | (((b >> 5) & 0x3F) >> 4)) as u8;
+            b3 = (((b & 0x1F) << 3) | ((b & 0x1F) >> 2)) as u8;
+            b4 = 255;
+        }
+        CompType::Int8 => { // GX_RGB888
+            b1 = reader.read_byte();
+            b2 = reader.read_byte();
+            b3 = reader.read_byte();
+            b4 = 255;
+        }
+        CompType::UInt16 => { // GX_RGBX888
+            b1 = reader.read_byte();
+            b2 = reader.read_byte();
+            b3 = reader.read_byte();
+            b4 = reader.read_byte();
+        }
+        CompType::Int16 => { // GX_RGBA4
+            let b = reader.read_i16();
+            b1 = ((((b >> 12) & 0xF) << 4) | ((b >> 12) & 0xF)) as u8;
+            b2 = ((((b >> 8) & 0xF) << 4) | ((b >> 8) & 0xF)) as u8;
+            b3 = ((((b >> 4) & 0xF) << 4) | ((b >> 4) & 0xF)) as u8;
+            b4 = (((b & 0xF) << 4) | (b & 0xF)) as u8;
+        }
+        CompType::Float => { // GX_RGBA6
+            let b = ((reader.read_byte() as u32) << 16) 
+                | ((reader.read_byte() as u32) << 8) 
+                | (reader.read_byte() as u32);
+            b1 = ((((b >> 18) & 0x3F) << 2) | (((b >> 18) & 0x3F) >> 4)) as u8;
+            b2 = ((((b >> 12) & 0x3F) << 2) | (((b >> 12) & 0x3F) >> 4)) as u8;
+            b3 = ((((b >> 6) & 0x3F) << 2) | (((b >> 6) & 0x3F) >> 4)) as u8;
+            b4 = (((b & 0x3F) << 2) | ((b & 0x3F) >> 4)) as u8;
+        }
+        CompType::Unused => { // GX_RGBX888 
+            // This is necessary for some reason...
+            b1 = reader.read_byte();
+            b2 = reader.read_byte();
+            b3 = reader.read_byte();
+            b4 = reader.read_byte();
+        }
+    }
+
+    [
+        b1 as f32 / 255f32, 
+        b2 as f32 / 255f32, 
+        b3 as f32 / 255f32, 
+        b4 as f32 / 255f32, 
+    ]
 }
 
 impl<'a> JOBJ<'a> {
@@ -561,6 +623,31 @@ pub enum AttributeName {
     GX_VA_MAX_ATTR,        // maximum number of vertex attributes
 
     GX_VA_NULL = 0xff  // NULL attribute (to mark end of lists)
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CompType {
+    UInt8 = 0,
+    Int8 = 1,
+    UInt16 = 2,
+    Int16 = 3,
+    Float = 4,
+    Unused = 5, // actually used LMAO wtf
+}
+
+impl CompType {
+    pub fn from_u8(n: u8) -> Self {
+        match n {
+            0 => Self::UInt8,
+            1 => Self::Int8,
+            2 => Self::UInt16,
+            3 => Self::Int16,
+            4 => Self::Float,
+            5 => Self::Unused,
+            _ => panic!("unknown comp type")
+        }
+    }
 }
 
 impl AttributeName {

@@ -1,4 +1,4 @@
-use crate::dat::{HSDRawFile, JOBJ, DatExtractError, textures::{try_decode_texture, Texture}};
+use crate::dat::{HSDStruct, HSDRawFile, JOBJ, DatExtractError, textures::{try_decode_texture, Texture}};
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
 
@@ -52,6 +52,8 @@ pub struct Vertex {
     pub normal: Vec3,
     pub weights: Vec4,
     pub bones: UVec4,
+    pub colour: Vec4,
+    //pub colour1: Vec4,
 }
 
 #[derive(Debug, Clone)]
@@ -74,8 +76,16 @@ pub struct Model {
     pub vertices: Box<[Vertex]>,
 }
 
-/// returns the model's jobjs and the extracted model
 pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, DatExtractError> {
+    let root_jobj = parsed_model_dat.roots.iter()
+        .find_map(|root| JOBJ::try_from_root_node(root))
+        .ok_or(DatExtractError::InvalidDatFile)?;
+
+    extract_model_from_jobj(root_jobj, 36..68)
+}
+
+/// returns the model's jobjs and the extracted model
+pub fn extract_model_from_jobj<'a>(root_jobj: JOBJ<'a>, dobj_skip: std::ops::Range<usize>) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);
     let mut bone_jobjs = Vec::with_capacity(128);
@@ -113,10 +123,6 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, Dat
         bone_idx
     }
 
-    let root_jobj = parsed_model_dat.roots.iter()
-        .find_map(|root| JOBJ::try_from_root_node(root))
-        .ok_or(DatExtractError::InvalidDatFile)?;
-    
     for jobj in root_jobj.siblings() {
         set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
     }
@@ -141,7 +147,7 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, Dat
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
                 // hack to skip low poly mesh
-                if 36 <= dobj_idx && dobj_idx <= 67 {
+                if dobj_skip.contains(&dobj_idx) {
                     dobj_idx += 1;
                     continue;
                 }
@@ -205,6 +211,52 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, Dat
     };
 
     Ok(model)
+}
+
+pub struct MapHead<'a> {
+    pub hsd_struct: HSDStruct<'a>
+}
+
+impl<'a> MapHead<'a> {
+    pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
+        Self { hsd_struct }
+    }
+
+    pub fn get_model_groups(&self) -> impl Iterator<Item=MapGOBJ<'a>> {
+        self.hsd_struct.get_array(0x34, 0x08)
+            .map(MapGOBJ::new)
+    }
+}
+
+pub struct MapGOBJ<'a> {
+    pub hsd_struct: HSDStruct<'a>
+}
+
+impl<'a> MapGOBJ<'a> {
+    pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
+        Self { hsd_struct }
+    }
+
+    pub fn root_jobj(&self) -> JOBJ<'a> {
+        JOBJ::new(self.hsd_struct.get_reference(0x00))
+    }
+}
+
+pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<Model, DatExtractError> {
+    let stage_root = parsed_stage_dat.roots.iter()
+        .find(|root| root.root_string == "map_head")
+        .ok_or(DatExtractError::InvalidDatFile)?
+        .hsd_struct.clone();
+    let stage_root = MapHead::new(stage_root);
+
+    //for m in stage_root.get_model_groups() {
+    //    extract_model_from_jobj(m.root_jobj(), 0..0).unwrap();
+    //}
+
+    let model_group = stage_root.get_model_groups().nth(3).unwrap();
+    let root_jobj = model_group.root_jobj();
+
+    extract_model_from_jobj(root_jobj, 0..0)
 }
 
 //impl Model {
@@ -291,21 +343,6 @@ pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, Dat
 //        for root in self.bone_tree_roots.iter() {
 //            root.inspect_high_poly_bones(&self.bones, &mut bone_to_obj)
 //        }
-//    }
-//}
-
-//impl Skeleton {
-//    pub fn apply_animation(&mut self, frame: f32, animation: &Animation) {
-//        for transform in animation.transforms.iter() {
-//            let bone = &mut self.bones[transform.bone_index];
-//            bone.animated_transform = transform.compute_transform_at(frame, &bone.base_transform);
-//        }
-//    }
-//}
-
-//impl Bone {
-//    pub fn animated_bind_matrix(&self, bones: &[Bone]) -> Mat4 {
-//        self.animated_world_transform(bones) * self.inv_world_transform(bones)
 //    }
 //}
 

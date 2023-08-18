@@ -108,7 +108,10 @@ impl<'a> TOBJ<'a> {
 
         let rgba_data = match format {
             InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height),
-            _ => todo!()
+            InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
+            InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height),
+            InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
+            t => panic!("texture format {:?} unimplemented", t),
         };
 
         Some(Texture {
@@ -152,6 +155,98 @@ impl InternalTextureFormat {
             _ => return None,
         })
     }
+}
+
+// GXImageConverter.cs:396 (fromRGBA8)
+fn decode_rgba8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut inp = 0;
+
+    for y in (0..height).step_by(4) {
+       for x in (0..width).step_by(4) {
+           for k in 0..2 {
+               for y1 in y..(y + 4) {
+                   for x1 in x..(x + 4) {
+                       // TODO check endianness here
+                       let pixel = u16::from_be_bytes([data[inp], data[inp+1]]) as u32;
+                       inp += 2;
+
+                       if x >= width || y >= height {
+                           continue
+                       }
+
+                       let a = (pixel >> 8) & 0xff;
+                       let b = (pixel >> 0) & 0xff;
+                       let (s1, s2) = ([(16, 24), (8, 0)])[k];
+                       rgba_buffer[x1 + (y1 * width)] |= (a << s1) | (b << s2);
+                   }
+               }
+           }
+       }
+    }
+
+    rgba_buffer
+}
+
+// GXImageConverter.cs:706 (fromI4)
+fn decode_i4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut inp = 0;
+
+    //if width < 8 || height < 8 {
+    //    panic!("Invalid buffer size");
+    //}
+
+    for y in (0..height).step_by(8) {
+        for x in (0..width).step_by(8) {
+            for y1 in y..y+8 {
+                for x1 in (x..x+8).step_by(2) {
+                    let pixel = data[inp] as u32;
+                    inp += 1;
+
+                    if y1 >= height || x1 >= width {
+                        continue;
+                    }
+
+                    let i = (pixel >> 4) * 255 / 15;
+                    let idx = y1 * width + x1;
+                    rgba_buffer[idx] = i | (i << 8) | (i << 16) | (i << 24);
+
+                    let i = (pixel & 0x0F) * 255 / 15;
+                    if idx + 1 < rgba_buffer.len() {
+                        rgba_buffer[idx + 1] = i | (i << 8) | (i << 16) | (i << 24);
+                    } 
+                }
+            }
+        }
+    }
+
+    rgba_buffer
+}
+
+// GXImageConverter.cs:790 (fromI8)
+fn decode_i8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut inp = 0;
+
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(8) {
+            for y1 in y..y+4 {
+                for x1 in x..x+8 {
+                    let pixel = data[inp] as u32;
+                    inp += 1;
+
+                    if y1 >= height || x1 >= width {
+                        continue;
+                    }
+
+                    rgba_buffer[y1 * width + x1] = (pixel << 0) | (pixel << 8) | (pixel << 16) | (pixel << 24);
+                }
+            }
+        }
+    }
+
+    rgba_buffer
 }
 
 // GXImageConverter.cs:1245 (fromCMP)
