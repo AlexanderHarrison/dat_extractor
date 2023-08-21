@@ -12,7 +12,7 @@ fn main() {
     let data = dat_tools::get_fighter_data(&mut files, c).unwrap();
     let model = data.model;
 
-    let mut frame = AnimationFrame::new_t_pose(&model);
+    let mut frame = AnimationFrame::new_default_pose(&model);
     for anim in data.animations.iter() {
         //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
         if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {

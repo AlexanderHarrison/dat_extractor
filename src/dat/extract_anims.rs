@@ -20,7 +20,7 @@ pub struct AnimationFrame {
 }
 
 impl AnimationFrame {
-    pub fn new_t_pose(model: &Model) -> Self {
+    pub fn new_default_pose(model: &Model) -> Self {
         let bone_len = model.base_transforms.len();
         let animated_transforms = model.base_transforms.to_vec().into_boxed_slice();
         let mut animated_world_transforms = Vec::with_capacity(bone_len);
@@ -44,7 +44,7 @@ impl AnimationFrame {
         }
     }
 
-    pub fn t_pose(&mut self, model: &Model) {
+    pub fn default_pose(&mut self, model: &Model) {
         self.animated_transforms.copy_from_slice(&model.base_transforms);
 
         for (i, base_transform) in model.base_transforms.iter().enumerate() {
@@ -629,7 +629,7 @@ impl AnimTrack {
                 let mut value = lerp(left_value, right_value, left_frame, right_frame, frame);
 
                 if value.is_nan() {
-                    value = 0.0 // Occurs occasionally, this is what StudioSB does
+                    value = 0.0 // Occurs occasionally, what StudioSB does
                 }
 
                 value
@@ -645,7 +645,7 @@ impl AnimTrack {
                 let mut value = hermite(frame, left_frame, right_frame, left_tan, right_tan, left_value, right_value);
 
                 if value.is_nan() {
-                    value = 0.0 // Occurs occasionally, this is what StudioSB does
+                    value = 0.0 // Occurs occasionally, what StudioSB does
                 }
 
                 value
@@ -655,23 +655,26 @@ impl AnimTrack {
 
     // SBKeyGroup.cs:80
     pub fn binary_search_keys(&self, frame: f32) -> usize {
-        let mut lower = 0;
-        let mut upper = self.keys.len() - 1;
-        let mut middle;
+        let mut lower: isize = 0;
+        let mut upper: isize = self.keys.len() as isize - 1;
 
         while lower <= upper {
-            middle = (upper + lower) / 2;
-            if frame == self.keys[middle].frame {
-                return middle;
-            } else if frame < self.keys[middle].frame {
-                assert!(middle != 0); // otherwise we need minus checks...
+            let middle = (upper + lower) / 2;
+            let mid_usize = middle as usize;
+            if frame == self.keys[mid_usize].frame {
+                return mid_usize;
+            } else if frame < self.keys[mid_usize].frame {
+                //if middle == 0 {
+                //    println!("{frame}");
+                //}
+                //assert!(middle != 0); // otherwise we need minus checks...
                 upper = middle - 1;
             } else {
                 lower = middle + 1;
             }
         }
         
-        lower.min(upper)
+        lower.min(upper).max(0) as usize
     }
 }
 
