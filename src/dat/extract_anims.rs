@@ -258,6 +258,11 @@ impl Animation {
             prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base_transform);
         }
 
+        // Remove translation from root jobj.
+        // This is given by slippi recording.
+        let (root_scale, root_rot, _) = prev_frame.animated_transforms[1].to_scale_rotation_translation();
+        prev_frame.animated_transforms[1] = Mat4::from_scale_rotation_translation(root_scale, root_rot, Vec3::ZERO);
+
         for (i, animated_transform) in prev_frame.animated_transforms.iter().enumerate() {
             let animated_world_transform = match model.bones[i].parent {
                 Some(p_i) => prev_frame.animated_world_transforms[p_i as usize] * *animated_transform,
@@ -664,10 +669,6 @@ impl AnimTrack {
             if frame == self.keys[mid_usize].frame {
                 return mid_usize;
             } else if frame < self.keys[mid_usize].frame {
-                //if middle == 0 {
-                //    println!("{frame}");
-                //}
-                //assert!(middle != 0); // otherwise we need minus checks...
                 upper = middle - 1;
             } else {
                 lower = middle + 1;
