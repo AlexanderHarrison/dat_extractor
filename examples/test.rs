@@ -8,76 +8,44 @@ use glam::Vec4Swizzles;
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let c = dat_tools::CharacterColour::Fox(dat_tools::FoxColour::Neutral);
-    let data = dat_tools::get_fighter_data(&mut files, c).unwrap();
-    let model = data.model;
 
-    let mut frame = AnimationFrame::new_default_pose(&model);
-    for anim in data.animations.iter() {
-        //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
-        if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
-            anim.frame_at(10.0, &mut frame, &model);
-            break;
-        }
+    let fs = [
+        ("Ca", "C.Falcon"),
+        ("Cl", "CLink, Young Link"),
+        ("Dk", "Donkey Kong"),
+        ("Dr", "Dr.Mario"),
+        ("Fc", "Falco"),
+        ("Fe", "Fire Emblem, Roy"),
+        ("Fx", "Fox"),
+        ("Gn", "Ganondorf"),
+        ("Gw", "Game n Watch"),
+        ("Kb", "Kirby"),
+        ("Kp", "Koopa, Bowser"),
+        ("Lg", "Luigi"),
+        ("Lk", "Link"),
+        ("Mr", "Mario"),
+        ("Ms", "Marth"),
+        ("Mt", "Mewtwo"),
+        ("Nn", "Nana, Ice Climbers"),
+        ("Ns", "Ness"),
+        ("Pc", "Pichu"),
+        ("Pe", "Peach"),
+        ("Pk", "Pikachu"),
+        ("Pr", "JigglyPuff"),
+        ("Sk", "Sheik"),
+        ("Ss", "Samus"),
+        ("Ys", "Yoshi"),
+        ("Zd", "Zelda"),
+    ];
+
+    for (f,ch) in fs {
+        let fc = format!("Pl{}.dat", f);
+        let fr = files.read_file(&fc).unwrap();
+        let hsd = dat_tools::dat::HSDRawFile::new(&fr);
+        println!("{}: {:?}", ch, dat_tools::dat::get_high_poly_bone_indicies(&hsd));
+        //let fighter_root = &hsd.roots[0];
+        //let hsd_struct = &fighter_root.hsd_struct;
+        //let c = hsd_struct.get_reference(0x34);
+        //println!("{}: \t{}", ch, c.get_f32(0x04))
     }
-
-    //let frame = dat_tools::dat::AnimationFrame::new_t_pose(&model);
-    frame.obj(&model);
-
-    //let bones = &*data.skeleton.bones;
-    ////data.skeleton.bone_tree_roots[0].inspect_each(&mut |b| println!("{}", b.index)); return;
-    //
-    //let mut b = 0;
-    //let mut m = 0;
-    //let mut p = 0;
-    //let mut v = 0;
-    //let mut mesh_index = 0;
-    //for bo in bones.iter() {
-    //    b += 1;
-    //    for mesh in bo.meshes.iter() {
-    //        if 36 <= mesh_index && mesh_index <= 67 { 
-    //            mesh_index += 1;
-    //            continue;
-    //        } else {
-    //            mesh_index += 1;
-    //        }
-    //        m += 1;
-
-    //        for pr in mesh.primitives.iter() {
-    //            p += 1;
-
-    //            v += pr.vertices.len();
-
-    //            match pr.primitive_type {
-    //                PrimitiveType::Triangles => { }
-    //                PrimitiveType::TriangleStrip => { }
-    //                PrimitiveType::Quads => { }
-    //                p => panic!("{:?}", p)
-    //            }
-    //        }
-    //    }
-    //}
-
-    //for anim in frame.animated_bind_transforms.iter() {
-    //    println!("{:.4}", anim.x_axis[0].abs());
-    //    println!("{:.4}", anim.x_axis[1].abs());
-    //    println!("{:.4}", anim.x_axis[2].abs());
-    //    println!("{:.4}", anim.x_axis[3].abs());
-    //    println!("{:.4}", anim.y_axis[0].abs());
-    //    println!("{:.4}", anim.y_axis[1].abs());
-    //    println!("{:.4}", anim.y_axis[2].abs());
-    //    println!("{:.4}", anim.y_axis[3].abs());
-    //    println!("{:.4}", anim.z_axis[0].abs());
-    //    println!("{:.4}", anim.z_axis[1].abs());
-    //    println!("{:.4}", anim.z_axis[2].abs());
-    //    println!("{:.4}", anim.z_axis[3].abs());
-    //    println!("{:.4}", anim.w_axis[0].abs());
-    //    println!("{:.4}", anim.w_axis[1].abs());
-    //    println!("{:.4}", anim.w_axis[2].abs());
-    //    println!("{:.4}", anim.w_axis[3].abs());
-    //}
-
-    //println!("{} bones", model.bones.len());
-    //println!("{} primitives", model.primitives.len());
-    //println!("{} vertices", model.vertices.len());
 }

@@ -14,6 +14,7 @@ lazy_static = "1.4.0"
 glam = "0.24"
 slippi_situation_parser = { path = "../slippi_situation_parser" }
 ahash = "0.8.3"
+bytemuck = "1.13"
 
 [dev-dependencies]
 lodepng = "3.7"

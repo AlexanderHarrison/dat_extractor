@@ -35,7 +35,8 @@ pub fn get_fighter_data(
 
 #[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CharacterColour {
-    Fox(FoxColour)
+    Fox(FoxColour),
+    Falco(FalcoColour),
 }
 
 #[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
@@ -46,6 +47,14 @@ pub enum FoxColour {
     Orange = 3,
 }
 
+#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
+pub enum FalcoColour {
+    Neutral = 0,
+    Blue = 1,
+    Green = 2,
+    Red = 3,
+}
+
 pub const fn character_model_filename(character: CharacterColour) -> &'static str {
     use CharacterColour::*;
     match character {
@@ -53,12 +62,18 @@ pub const fn character_model_filename(character: CharacterColour) -> &'static st
         Fox(FoxColour::Lavender) => "PlFxLa.dat",
         Fox(FoxColour::Green) => "PlFxGr.dat",
         Fox(FoxColour::Orange) => "PlFxOr.dat",
+
+        Falco(FalcoColour::Neutral) => "PlFcNr.dat",
+        Falco(FalcoColour::Blue) => "PlFcBu.dat",
+        Falco(FalcoColour::Green) => "PlFcGr.dat",
+        Falco(FalcoColour::Red) => "PlFcRe.dat",
     }
 }
 
 pub const fn character_data_filename(character: Character) -> &'static str {
     match character {
         Character::Fox => "PlFx.dat",
+        Character::Falco => "PlFc.dat",
         _ => todo!(),
     }
 }
@@ -66,6 +81,7 @@ pub const fn character_data_filename(character: Character) -> &'static str {
 pub const fn character_animation_filename(character: Character) -> &'static str {
     match character {
         Character::Fox => "PlFxAJ.dat",
+        Character::Falco => "PlFcAJ.dat",
         _ => todo!(),
     }
 }
@@ -73,6 +89,7 @@ pub const fn character_animation_filename(character: Character) -> &'static str 
 pub const fn inner_character_prefix(character: Character) -> &'static str {
     match character {
         Character::Fox => "Fx",
+        Character::Falco => "Fc",
         _ => todo!(),
     }
 }
@@ -81,6 +98,7 @@ impl CharacterColour {
     pub fn character(self) -> Character {
         match self {
             CharacterColour::Fox(..) => Character::Fox,
+            CharacterColour::Falco(..) => Character::Falco,
         }
     }
 }

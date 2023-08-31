@@ -45,6 +45,8 @@ pub enum Primitive {
     },
 }
 
+
+#[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
     pub pos: Vec3,
@@ -55,6 +57,8 @@ pub struct Vertex {
     pub colour: Vec4,
     //pub colour1: Vec4,
 }
+
+unsafe impl bytemuck::NoUninit for Vertex {}
 
 #[derive(Debug, Clone)]
 pub struct MeshBuilder {
@@ -76,16 +80,24 @@ pub struct Model {
     pub vertices: Box<[Vertex]>,
 }
 
-pub fn extract_model<'a>(parsed_model_dat: &HSDRawFile<'a>) -> Result<Model, DatExtractError> {
+pub fn extract_character_model<'a>(
+    parsed_fighter_dat: &HSDRawFile<'a>,
+    parsed_model_dat: &HSDRawFile<'a>,
+) -> Result<Model, DatExtractError> {
     let root_jobj = parsed_model_dat.roots.iter()
         .find_map(|root| JOBJ::try_from_root_node(root))
         .ok_or(DatExtractError::InvalidDatFile)?;
 
-    extract_model_from_jobj(root_jobj, 36..68)
+    let high_poly_bone_indicies = super::get_high_poly_bone_indicies(parsed_fighter_dat);
+
+    extract_model_from_jobj(root_jobj, Some(high_poly_bone_indicies))
 }
 
 /// returns the model's jobjs and the extracted model
-pub fn extract_model_from_jobj<'a>(root_jobj: JOBJ<'a>, dobj_skip: std::ops::Range<usize>) -> Result<Model, DatExtractError> {
+pub fn extract_model_from_jobj<'a>(
+    root_jobj: JOBJ<'a>, 
+    high_poly_bone_indicies: Option<&[u8]> // extracts all if None
+) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);
     let mut bone_jobjs = Vec::with_capacity(128);
@@ -147,9 +159,11 @@ pub fn extract_model_from_jobj<'a>(root_jobj: JOBJ<'a>, dobj_skip: std::ops::Ran
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
                 // hack to skip low poly mesh
-                if dobj_skip.contains(&dobj_idx) {
-                    dobj_idx += 1;
-                    continue;
+                if let Some(indicies) = high_poly_bone_indicies {
+                    if !indicies.contains(&dobj_idx) {
+                        dobj_idx += 1;
+                        continue;
+                    }
                 }
                 dobj_idx += 1;
 
@@ -256,7 +270,7 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<Model, Dat
     let model_group = stage_root.get_model_groups().nth(3).unwrap();
     let root_jobj = model_group.root_jobj();
 
-    extract_model_from_jobj(root_jobj, 0..0)
+    extract_model_from_jobj(root_jobj, None)
 }
 
 //impl Model {

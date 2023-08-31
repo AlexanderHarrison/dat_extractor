@@ -5,13 +5,13 @@ mod jobj;
 pub use jobj::{DOBJ, JOBJ};
 
 mod extract_mesh;
-pub use extract_mesh::{Model, Bone, extract_model, extract_stage, Primitive, MeshBuilder, PrimitiveType, Vertex};
+pub use extract_mesh::*;
 
 mod extract_anims;
-pub use extract_anims::{demangle_anim_name, extract_anims, Animation, AnimationFrame};
+pub use extract_anims::*;
 
 mod fighter_data;
-pub use fighter_data::{FighterData, FighterAction, parse_actions, parse_fighter_data};
+pub use fighter_data::*;
 
 mod textures;
 
@@ -279,7 +279,8 @@ impl<'a> HSDRawFile<'a> {
 
                     // add goto pointer to subaction
                     if let Some(_prev) = prev {
-                        panic!("Removed this section because I don't want arbitrary SetReferenceStructs.");
+                        // Removed this section because I don't want arbitrary SetReferenceStructs.
+                        eprintln!("todo add goto pointer to subaction");
                         //let len = prev.len();
                         //prev.Resize(prev.len() + 8);
                         //prev.SetInt32(len, 0x1C000000);

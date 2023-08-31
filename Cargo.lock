@@ -46,6 +46,7 @@ name = "dat_tools"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "bytemuck",
  "glam",
  "lazy_static",
  "lodepng",

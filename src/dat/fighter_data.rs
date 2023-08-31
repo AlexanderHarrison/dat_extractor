@@ -1,6 +1,6 @@
 use crate::dat::{
     HSDStruct, DatFile, Model,
-    HSDRawFile, Animation, extract_anims, extract_model,
+    HSDRawFile, Animation, extract_anims, extract_character_model, JOBJ
 };
 use crate::parse_string;
 
@@ -32,13 +32,25 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     let animations = extract_anims(anim_dat, actions).ok()?;
 
     let parsed_model_dat = HSDRawFile::new(model_dat);
-    let model = extract_model(&parsed_model_dat).ok()?;
+    let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
 
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         animations,
         model
     })
+}
+
+//pub fn get_high_poly_mesh_jobj<'a>(fighter_hsd: &HSDRawFile<'a>) -> JOBJ<'a> {
+pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> &'a [u8] {
+    let fighter_root = &fighter_hsd.roots[0];
+    let lookup_tables = fighter_root.hsd_struct.get_reference(0x08);
+    let costume_table = lookup_tables.get_array(0x10, 0x04).next().unwrap();
+    let high_poly_table = costume_table.get_array(0x08, 0x00).next().unwrap();
+    let jobj_table = high_poly_table.get_array(0x08, 0x04).next().unwrap();
+    let count = jobj_table.get_i32(0x00) as usize;
+    &jobj_table.get_buffer(0x04)[..count]
+    //high_poly_table.get_i32(0x00)
 }
 
 pub fn parse_actions(fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {
