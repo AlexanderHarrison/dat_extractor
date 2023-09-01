@@ -46,9 +46,7 @@ pub fn try_decode_texture<'a>(
 ) -> Option<u16> {
     let mobj = dobj.get_mobj()?;
     let tobj = mobj.get_tobj()?;
-    if tobj.get_sibling().is_some() {
-        todo!();
-    }
+    if tobj.get_sibling().is_some() { todo!(); }
     let data_ptr = tobj.image_buffer()?.as_ptr();
 
     use std::collections::hash_map::Entry;
@@ -111,6 +109,7 @@ impl<'a> TOBJ<'a> {
             InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
             InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height),
             InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
+            InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height),
             t => panic!("texture format {:?} unimplemented", t),
         };
 
@@ -163,26 +162,50 @@ fn decode_rgba8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
-       for x in (0..width).step_by(4) {
-           for k in 0..2 {
-               for y1 in y..(y + 4) {
-                   for x1 in x..(x + 4) {
-                       // TODO check endianness here
-                       let pixel = u16::from_be_bytes([data[inp], data[inp+1]]) as u32;
-                       inp += 2;
+        for x in (0..width).step_by(4) {
+            for k in 0..2 {
+                for y1 in y..(y + 4) {
+                    for x1 in x..(x + 4) {
+                        // TODO check endianness here
+                        let pixel = u16::from_be_bytes([data[inp], data[inp+1]]) as u32;
+                        inp += 2;
 
-                       if x >= width || y >= height {
-                           continue
-                       }
+                        if x >= width || y >= height { continue }
 
-                       let a = (pixel >> 8) & 0xff;
-                       let b = (pixel >> 0) & 0xff;
-                       let (s1, s2) = ([(16, 24), (8, 0)])[k];
-                       rgba_buffer[x1 + (y1 * width)] |= (a << s1) | (b << s2);
-                   }
-               }
-           }
-       }
+                        let a = (pixel >> 8) & 0xff;
+                        let b = (pixel >> 0) & 0xff;
+                        let (s1, s2) = ([(16, 24), (8, 0)])[k];
+                        rgba_buffer[x1 + (y1 * width)] |= (a << s1) | (b << s2);
+                    }
+                }
+            }
+        }
+    }
+
+    rgba_buffer
+}
+
+// GXImageConverter.cs:622 (fromRGB565)
+fn decode_rgb565_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut inp = 0;
+
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(4) {
+            for y1 in y..(y + 4) {
+                for x1 in x..(x + 4) {
+                    let pixel = u16::from_be_bytes([data[inp], data[inp+1]]) as u32;
+                    inp += 2;
+
+                    if x >= width || y >= height { continue }
+
+                    let b = (((pixel >> 11) & 0x1f) << 3) & 0xff;
+                    let g = (((pixel >> 5) & 0x3f) << 2) & 0xff;
+                    let r = (((pixel >> 0) & 0x1f) << 3) & 0xff;
+                    rgba_buffer[y1 * width + x1] = (r << 0) | (g << 8) | (b << 16) | (255 << 24);
+                }
+            }
+        }
     }
 
     rgba_buffer
@@ -204,9 +227,7 @@ fn decode_i4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
                     let pixel = data[inp] as u32;
                     inp += 1;
 
-                    if y1 >= height || x1 >= width {
-                        continue;
-                    }
+                    if y1 >= height || x1 >= width { continue; }
 
                     let i = (pixel >> 4) * 255 / 15;
                     let idx = y1 * width + x1;

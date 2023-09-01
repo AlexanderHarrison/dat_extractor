@@ -128,7 +128,7 @@ pub fn extract_model_from_jobj<'a>(
             child_start,
             child_len,
 
-            // set later
+            // are set later
             pgroup_start: 0,
             pgroup_len: 0,
         };

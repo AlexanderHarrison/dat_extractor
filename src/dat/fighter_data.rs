@@ -1,6 +1,6 @@
 use crate::dat::{
     HSDStruct, DatFile, Model,
-    HSDRawFile, Animation, extract_anims, extract_character_model, JOBJ
+    HSDRawFile, Animation, extract_anims, extract_character_model
 };
 use crate::parse_string;
 
