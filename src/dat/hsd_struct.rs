@@ -109,9 +109,19 @@ impl<'a> HSDStruct<'a> {
         i16::from_be_bytes(bytes)
     }
 
+    pub fn get_u16(&self, loc: usize) -> u16 {
+        let bytes: [u8; 2] = self.data[loc..loc+2].try_into().unwrap();
+        u16::from_be_bytes(bytes)
+    }
+
     pub fn get_i32(&self, loc: usize) -> i32 {
         let bytes: [u8; 4] = self.data[loc..loc+4].try_into().unwrap();
         i32::from_be_bytes(bytes)
+    }
+
+    pub fn get_u32(&self, loc: usize) -> u32 {
+        let bytes: [u8; 4] = self.data[loc..loc+4].try_into().unwrap();
+        u32::from_be_bytes(bytes)
     }
 
     pub fn get_f32(&self, loc: usize) -> f32 {

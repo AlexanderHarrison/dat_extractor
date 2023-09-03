@@ -256,21 +256,15 @@ impl<'a> MapGOBJ<'a> {
     }
 }
 
-pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<Model, DatExtractError> {
+pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<impl Iterator<Item=Model> + 'a, DatExtractError> {
     let stage_root = parsed_stage_dat.roots.iter()
         .find(|root| root.root_string == "map_head")
         .ok_or(DatExtractError::InvalidDatFile)?
         .hsd_struct.clone();
     let stage_root = MapHead::new(stage_root);
 
-    //for m in stage_root.get_model_groups() {
-    //    extract_model_from_jobj(m.root_jobj(), 0..0).unwrap();
-    //}
-
-    let model_group = stage_root.get_model_groups().nth(3).unwrap();
-    let root_jobj = model_group.root_jobj();
-
-    extract_model_from_jobj(root_jobj, None)
+    Ok(stage_root.get_model_groups()
+        .map(|m| extract_model_from_jobj(m.root_jobj(), None).unwrap()))
 }
 
 //impl Model {
