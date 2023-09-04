@@ -14,6 +14,7 @@ mod fighter_data;
 pub use fighter_data::*;
 
 mod textures;
+pub use textures::*;
 
 use ahash::{HashMap, HashSet, HashMapExt, HashSetExt};
 use std::rc::Rc;

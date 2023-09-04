@@ -26,6 +26,16 @@ pub struct Texture {
     pub rgba_data: Box<[u32]>,
     pub scale_x: f32,
     pub scale_y: f32,
+    pub wrap_u: WrapMode,
+    pub wrap_v: WrapMode,
+}
+
+// GX/Enums.cs:192 (GXWrapMode)
+#[derive(Copy, Clone, Debug)]
+pub enum WrapMode {
+    Clamp,
+    Repeat,
+    Mirror,
 }
 
 // GX/Enums.cs:122 (GXTexFmt)
@@ -44,6 +54,17 @@ pub enum InternalTextureFormat {
     CMP = 14, // only value used for fox
 }
 
+impl WrapMode {
+    pub fn from_u32(n: u32) -> Self {
+        match n {
+            0 => WrapMode::Clamp,
+            1 => WrapMode::Repeat,
+            2 => WrapMode::Mirror,
+            _ => panic!("unknown wrap mode"),
+        }
+    }
+}
+
 pub fn try_decode_texture<'a>(
     cache: &mut HashMap<*const u8, u16>,
     textures: &mut Vec<Texture>,
@@ -51,20 +72,30 @@ pub fn try_decode_texture<'a>(
 ) -> Option<u16> {
     let mobj = dobj.get_mobj()?;
     let tobj = mobj.get_tobj()?;
-    if tobj.get_sibling().is_some() { todo!(); }
-    let data_ptr = tobj.image_buffer()?.as_ptr();
 
-    use std::collections::hash_map::Entry;
-    match cache.entry(data_ptr) {
-        Entry::Occupied(entry) => Some(*entry.get()),
-        Entry::Vacant(entry) => {
-            let texture = tobj.texture().unwrap();
-            let texture_idx = textures.len() as _;
-            textures.push(texture);
-            entry.insert(texture_idx);
-            Some(texture_idx)
+    println!("{} images in tobj", tobj.siblings().filter(|t| t.image_buffer().is_some()).count());
+
+    let mut ret = None;
+    for tobj in tobj.siblings() {
+        let data_ptr = match tobj.image_buffer() {
+            Some(b) => b.as_ptr(),
+            None => continue
+        };
+
+        use std::collections::hash_map::Entry;
+        match cache.entry(data_ptr) {
+            Entry::Occupied(entry) => ret = Some(*entry.get()),
+            Entry::Vacant(entry) => {
+                let texture = tobj.texture().unwrap();
+                let texture_idx = textures.len() as _;
+                textures.push(texture);
+                entry.insert(texture_idx);
+                ret = Some(texture_idx);
+            }
         }
     }
+
+    ret
 }
 
 impl<'a> TOBJ<'a> {
@@ -106,6 +137,9 @@ impl<'a> TOBJ<'a> {
         let scale_x = self.hsd_struct.get_i8(0x3C) as f32;
         let scale_y = self.hsd_struct.get_i8(0x3D) as f32;
 
+        let wrap_u = WrapMode::from_u32(self.hsd_struct.get_u32(0x34));
+        let wrap_v = WrapMode::from_u32(self.hsd_struct.get_u32(0x38));
+
         let rgba_data = match format {
             InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height),
             InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
@@ -114,6 +148,12 @@ impl<'a> TOBJ<'a> {
             InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height),
             InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
             InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height),
+            InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height),
+            InternalTextureFormat::CI4 => {
+                let tlut_data = TLUT::new(self.hsd_struct.get_reference(0x50));
+                let palette = tlut_data.palette();
+                decode_ci4_image(data_buffer, &palette, width, height)
+            }
             InternalTextureFormat::CI8 => {
                 let tlut_data = TLUT::new(self.hsd_struct.get_reference(0x50));
                 let palette = tlut_data.palette();
@@ -128,6 +168,8 @@ impl<'a> TOBJ<'a> {
             rgba_data,
             scale_x,
             scale_y,
+            wrap_u,
+            wrap_v,
         })
     }
 }
@@ -303,6 +345,43 @@ fn decode_rgb565_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
     rgba_buffer
 }
 
+// GXImageConverter.cs:622 (fromRGB5A3)
+fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut inp = 0;
+
+    for y in (0..height).step_by(4) {
+        for x in (0..width).step_by(4) {
+            for y1 in y..(y + 4) {
+                for x1 in x..(x + 4) {
+                    let pixel = u16::from_be_bytes([data[inp], data[inp+1]]) as u32;
+                    inp += 2;
+
+                    if x >= width || y >= height { continue }
+
+                    let a; let r; let b; let g;
+                    // GXImageConverter.cs:601 (DecodeRGBA3)
+                    if (pixel & (1 << 15)) != 0 { //RGB555
+                        a = 255;
+                        b = (((pixel >> 10) & 0x1F) * 255) / 31;
+                        g = (((pixel >> 5) & 0x1F) * 255) / 31;
+                        r = (((pixel >> 0) & 0x1F) * 255) / 31;
+                    } else { //RGB4A3
+                        a = (((pixel >> 12) & 0x07) * 255) / 7;
+                        b = (((pixel >> 8) & 0x0F) * 255) / 15;
+                        g = (((pixel >> 4) & 0x0F) * 255) / 15;
+                        r = (((pixel >> 0) & 0x0F) * 255) / 15;
+                    }
+
+                    rgba_buffer[y1 * width + x1] = (r << 0) | (g << 8) | (b << 16) | (a << 24);
+                }
+            }
+        }
+    }
+
+    rgba_buffer
+}
+
 // GXImageConverter.cs:706 (fromI4)
 fn decode_i4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
     let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
@@ -411,6 +490,32 @@ fn decode_ia8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
                     let i = pixel & 0xff;
 
                     rgba_buffer[y1 * width + x1] = (i << 0) | (i << 8) | (i << 16) | (a << 24);
+                }
+            }
+        }
+    }
+
+    rgba_buffer
+}
+
+// GXImageConverter.cs:1103 (fromCI4)
+fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize) -> Box<[u32]> {
+    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+    let mut i = 0;
+
+    for y in (0..height).step_by(8) {
+        for x in (0..width).step_by(8) {
+            for y1 in y..(y + 8) {
+                for x1 in (x..(x + 8)).step_by(2) {
+                    let pixel = data[i] as usize;
+                    i += 1;
+
+                    if y1 >= height || x1 >= width {
+                        continue
+                    }
+
+                    rgba_buffer[y1 * width + x1] = palette[pixel >> 4];
+                    rgba_buffer[y1 * width + x1 + 1] = palette[pixel & 0x0F];
                 }
             }
         }

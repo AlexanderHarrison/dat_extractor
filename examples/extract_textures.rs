@@ -1,5 +1,5 @@
 use dat_tools::isoparser::ISODatFiles;
-use dat_tools::CharacterColour;
+//use dat_tools::CharacterColour;
 //use slippi_situation_parser::states::Character;
 
 fn main() {
@@ -7,7 +7,7 @@ fn main() {
     let mut files = ISODatFiles::new(file).unwrap();
     //let character = CharacterColour::Fox(dat_tools::FoxColour::Neutral);
 
-    let stage_dat = files.read_file("GrSt.dat").unwrap();
+    let stage_dat = files.read_file("GrTe.dat").unwrap();
     let hsd_stage_dat = dat_tools::dat::HSDRawFile::new(&stage_dat);
     let models = dat_tools::dat::extract_stage(&hsd_stage_dat).unwrap();
 
