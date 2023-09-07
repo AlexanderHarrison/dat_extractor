@@ -292,6 +292,8 @@ impl<'a> HSDRawFile<'a> {
             }
         }
 
+        // debug information
+        // it all matches HSDRaw!
         //println!("struct_cache              {}", struct_cache.len());
         //println!("struct_cache_to_offset    {}", struct_cache_to_offset.len());
         //println!("roots                     {}", roots.len());
@@ -452,88 +454,3 @@ fn binary_search<T: PartialEq + PartialOrd>(item: T, a: &[T]) -> Option<usize> {
 
     Some(mid as usize)
 }
-
-/*
-// might use later
-fn symbol_switch(x: &str) -> Box<dyn HSDAccessor> {
-    //use hsd_accessors::*;
-    match x {
-        //x if x.ends_with("matanim_joint")                    => Box::new(HSD_MatAnimJoint                                       ::new()) ,
-        //x if x.ends_with("shapeanim_joint")                  => Box::new(HSD_ShapeAnimJoint                                     ::new()) ,
-        //x if x.ends_with("_animjoint")                       => Box::new(HSD_AnimJoint                                          ::new()) ,
-        //x if x.ends_with("_joint")                           => Box::new(HSD_JOBJ                                               ::new()) ,
-        //x if x.ends_with("_texanim")                         => Box::new(HSD_TexAnim                                            ::new()) ,
-        //x if x.ends_with("_figatree")                        => Box::new(HSD_FigaTree                                           ::new()) ,
-        //x if x.ends_with("_camera")                          => Box::new(HSD_Camera                                             ::new()) ,
-        //x if x.ends_with("_scene_lights")                    => Box::new(HSDNullPointerArrayAccessor<HSD_Light>                 ::new()) ,
-        //x if x.ends_with("_scene_models") ||
-        //    x.eq("Stc_rarwmdls") ||
-        //    x.eq("Stc_scemdls") ||
-        //    x.eq("lupe") ||
-        //    x.eq("tdsce")                                    => Box::new(HSDNullPointerArrayAccessor<HSD_JOBJDesc>              ::new()) ,
-        //x if x.ends_with("_model_set")                       => Box::new(HSD_JOBJDesc                                           ::new()) ,
-        //x if x.eq("ftDataMario")                             => Box::new(SBM_ftDataMario                                        ::new()) ,
-        //x if x.eq("ftDataMars")                              => Box::new(SBM_ftDataMars                                         ::new()) ,
-        //x if x.eq("ftDataEmblem")                            => Box::new(SBM_ftDataMars                                         ::new()) ,
-        //x if x.starts_with("ftData") && !x.Contains("Copy")  => Box::new(SBM_FighterData                                        ::new()) ,
-        //x if x.ends_with("MnSelectChrDataTable")             => Box::new(SBM_SelectChrDataTable                                 ::new()) ,
-        //x if x.ends_with("MnSelectStageDataTable")           => Box::new(SBM_MnSelectStageDataTable                             ::new()) ,
-        //x if x.ends_with("coll_data")                        => Box::new(SBM_Coll_Data                                          ::new()) ,
-        //x if x.ends_with("_fog")                             => Box::new(HSD_FogDesc                                            ::new()) ,
-        //x if x.ends_with("scene_data") ||
-        //    x.eq("pnlsce") ||
-        //    x.eq("flmsce") ||
-        //    x.starts_with("Sc")                              => Box::new(HSD_SOBJ                                               ::new()) ,
-        //x if x.starts_with("map_plit")                       => Box::new(HSDNullPointerArrayAccessor<HSD_Light>                 ::new()) ,
-        //x if x.starts_with("map_head")                       => Box::new(SBM_Map_Head                                           ::new()) ,
-        //x if x.starts_with("grGroundParam")                  => Box::new(SBM_GroundParam                                        ::new()) ,
-        //x if x.starts_with("vcDataStar")                     => Box::new(KAR_vcDataStar                                         ::new()) ,
-        //x if x.starts_with("vcDataWheel")                    => Box::new(KAR_vcDataWheel                                        ::new()) ,
-        //x if x.starts_with("grModelMotion")                  => Box::new(KAR_grModelMotion                                      ::new()) ,
-        //x if x.starts_with("grModel")                        => Box::new(KAR_grModel                                            ::new()) ,
-        //x if x.starts_with("grData")                         => Box::new(KAR_grData                                             ::new()) ,
-        //x if x.ends_with("_texg")                            => Box::new(HSD_TEXGraphicBank                                     ::new()) ,
-        //x if x.ends_with("_ptcl")                            => Box::new(HSD_ParticleGroup                                      ::new()) ,
-        //x if x.starts_with("effBehaviorTable")               => Box::new(MEX_EffectTypeLookup                                   ::new()) ,
-        //x if x.starts_with("eff")                            => Box::new(SBM_EffectTable                                        ::new()) ,
-        //x if x.starts_with("itPublicData")                   => Box::new(itPublicData                                           ::new()) ,
-        //x if x.starts_with("itemdata")                       => Box::new(HSDNullPointerArrayAccessor<SBM_MapItem>               ::new()) ,
-        //x if x.starts_with("smSoundTestLoadData")            => Box::new(smSoundTestLoadData                                    ::new()) ,
-        //x if x.starts_with("ftLoadCommonData")               => Box::new(SBM_ftLoadCommonData                                   ::new()) ,
-        //x if x.starts_with("quake_model_set")                => Box::new(SBM_Quake_Model_Set                                    ::new()) ,
-        //x if x.starts_with("mexData")                        => Box::new(MEX_Data                                               ::new()) ,
-        //x if x.starts_with("mexMapData")                     => Box::new(MEX_mexMapData                                         ::new()) ,
-        //x if x.starts_with("mexSelectChr")                   => Box::new(MEX_mexSelectChr                                       ::new()) ,
-        //x if x.starts_with("mobj")                           => Box::new(HSD_MOBJ                                               ::new()) ,
-        //x if x.starts_with("SIS_")                           => Box::new(SBM_SISData                                            ::new()) ,
-        //x if x.eq("evMenu")                                  => Box::new(SBM_EventMenu                                          ::new()) ,
-        //x if x.ends_with("ColAnimData") ||
-        //    x.eq("lbBgFlashColAnimData")                     => Box::new(HSDArrayAccessor<ftCommonColorEffect>                  ::new()) ,
-        //x if x.eq("ftcmd")                                   => Box::new(SBM_FighterActionTable                                 ::new()) ,
-        //x if x.eq("Stc_icns")                                => Box::new(MEX_Stock                                              ::new()) ,
-        //x if x.eq("mexMenu")                                 => Box::new(MEX_Menu                                               ::new()) ,
-        //x if x.eq("bgm")                                     => Box::new(MEX_BGMModel                                           ::new()) ,
-        //x if x.eq("mexCostume")                              => Box::new(MEX_CostumeSymbol                                      ::new()) ,
-        //x if x.starts_with("mnName")                         => Box::new(HSDFixedLengthPointerArrayAccessor<HSD_ShiftJIS_String>::new()) ,
-        //x if x.ends_with("move_logic")                       => Box::new(HSDArrayAccessor<MEX_MoveLogic>                        ::new()) ,
-        //x if x.starts_with("em") && x.ends_with("DataGroup") => Box::new(KAR_emData                                             ::new()) ,
-        //x if x.eq("stData")                                  => Box::new(KAR_stData                                             ::new()) ,
-        //x if x.starts_with("rdMotion")                       => Box::new(HSDArrayAccessor<KAR_RdMotion>                         ::new()) ,
-        //x if x.starts_with("vcDataCommon")                   => Box::new(KAR_vcDataCommon                                       ::new()) ,
-        //x if x.starts_with("rdDataCommon")                   => Box::new(HSDAccessor                                            ::new()) , // TODO:
-        //x if x.starts_with("rdData")                         => Box::new(KAR_RdData                                             ::new()) ,
-        //x if x.starts_with("rdExt")                          => Box::new(KEX_RdExt                                              ::new()) ,
-        //x if x.starts_with("kexData")                        => Box::new(kexData                                                ::new()) ,
-        //x if x.eq("gmIntroEasyTable")                        => Box::new(SBM_gmIntroEasyTable                                   ::new()) ,
-        //x if x.starts_with("tyDisplayModel")                 => Box::new(HSDArrayAccessor<SBM_tyDisplayModelEntry>              ::new()) ,
-        //x if x.starts_with("tyModelFile")                    => Box::new(HSDArrayAccessor<SBM_TyModelFileEntry>                 ::new()) ,
-        //x if x.starts_with("tyInitModel")                    => Box::new(HSDArrayAccessor<SBM_tyInitModelEntry>                 ::new()) ,
-        //x if x.starts_with("tyModelSort")                    => Box::new(HSDArrayAccessor<SBM_tyModelSortEntry>                 ::new()) ,
-        //x if x.starts_with("tyExpDifferent")                 => Box::new(HSDShortArray                                          ::new()) ,
-        //x if x.starts_with("tyNoGetUsTbl")                   => Box::new(HSDShortArray                                          ::new()) ,
-        //x if x.starts_with("grMurabito")                     => Box::new(HSDNullPointerArrayAccessor<SBM_GrMurabito>            ::new()) ,
-        _ => todo!() // return generic
-    }
-}
-*/
-

@@ -73,7 +73,10 @@ pub fn try_decode_texture<'a>(
     let mobj = dobj.get_mobj()?;
     let tobj = mobj.get_tobj()?;
 
-    println!("{} images in tobj", tobj.siblings().filter(|t| t.image_buffer().is_some()).count());
+    let im_count = tobj.siblings().filter(|t| t.image_buffer().is_some()).count();
+    if im_count > 1 {
+        println!("{} unused images in tobj", im_count)
+    }
 
     let mut ret = None;
     for tobj in tobj.siblings() {
@@ -132,7 +135,6 @@ impl<'a> TOBJ<'a> {
         let width = hsd_image.get_i16(0x04) as usize;
         let height = hsd_image.get_i16(0x06) as usize;
         let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
-        println!("{:?}", format);
 
         let scale_x = self.hsd_struct.get_i8(0x3C) as f32;
         let scale_y = self.hsd_struct.get_i8(0x3D) as f32;

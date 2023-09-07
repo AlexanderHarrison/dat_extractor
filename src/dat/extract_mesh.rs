@@ -263,11 +263,46 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<impl Itera
         .hsd_struct.clone();
     let stage_root = MapHead::new(stage_root);
 
+    //Ok(std::iter::once(extract_model_from_jobj(stage_root.get_model_groups().nth(3).unwrap().root_jobj(), None).unwrap()))
     Ok(stage_root.get_model_groups()
         .map(|m| extract_model_from_jobj(m.root_jobj(), None).unwrap()))
 }
 
-//impl Model {
+impl Model {
+    pub fn cube(scale: f32) -> Self {
+        const V: Vertex = Vertex { pos: Vec3::ZERO, uv: Vec2::ZERO, normal: Vec3::ZERO,
+            weights: Vec4::ZERO, bones: UVec4::ZERO, colour: Vec4::ZERO };
+
+        Self {
+            bones: vec![Bone { parent: None, child_start: 0, child_len: 0, pgroup_start: 0, pgroup_len: 1 }].into(),
+            bone_child_idx: vec![].into(),
+            base_transforms: vec![Mat4::IDENTITY].into(),
+            inv_world_transforms: vec![Mat4::IDENTITY].into(),
+
+            primitive_groups: vec![PrimitiveGroup { texture_idx: None, prim_start: 0, prim_len: 1 }].into(),
+            textures: vec![].into(),
+
+            primitives: vec![Primitive::TriangleStrip { vert_start: 0, vert_len: 14 }].into(),
+            vertices: vec![
+                Vertex { pos: Vec3::new(-1., -1.,  1.) * scale, colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1.,  1.) * scale, colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1.,  1.) * scale, colour: Vec4::new(1., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1., -1.) * scale, colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1., -1.) * scale, colour: Vec4::new(0., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1., -1.) * scale, colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1., -1.) * scale, colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1., -1.) * scale, colour: Vec4::new(1., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1.,  1.) * scale, colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1., -1.) * scale, colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1.,  1.) * scale, colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+            ].into(),
+        }
+    }
+}
+
 //    pub fn obj(&self) {
 //        let bones = &*self.bones;
 //
@@ -368,3 +403,4 @@ impl PrimitiveType {
         })
     }
 }
+

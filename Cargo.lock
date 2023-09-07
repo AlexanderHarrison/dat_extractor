@@ -50,7 +50,7 @@ dependencies = [
  "glam",
  "lazy_static",
  "lodepng",
- "slippi_situation_parser",
+ "slp_parser",
 ]
 
 [[package]]
@@ -148,14 +148,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "slippi_situation_parser"
-version = "0.1.0"
-dependencies = [
- "utils",
-]
-
-[[package]]
-name = "utils"
+name = "slp_parser"
 version = "0.1.0"
 
 [[package]]

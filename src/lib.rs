@@ -2,8 +2,8 @@ pub mod dat;
 pub mod isoparser;
 
 use dat::FighterData;
-use slippi_situation_parser::states::Character;
 use isoparser::{ISOParseError, ISODatFiles};
+use slp_parser::{Stage, Character, CharacterColour, character_colours::*};
 
 pub fn parse_string(bytes: &[u8]) -> Option<&str> {
     let terminator = bytes.iter().position(|b| *b == 0)?;
@@ -33,40 +33,38 @@ pub fn get_fighter_data(
         .ok_or(ISOParseError::InvalidISO)
 }
 
-#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CharacterColour {
-    Fox(FoxColour),
-    Falco(FalcoColour),
-}
-
-#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FoxColour {
-    Neutral = 0,
-    Lavender = 1,
-    Green = 2,
-    Orange = 3,
-}
-
-#[derive(Hash, Copy, Clone, Debug, PartialEq, Eq)]
-pub enum FalcoColour {
-    Neutral = 0,
-    Blue = 1,
-    Green = 2,
-    Red = 3,
+pub const fn stage_filename(stage: Stage) -> &'static str {
+    match stage {
+        Stage::FinalDestination => "GrNLa.dat",
+        Stage::FountainOfDreams => "GrIz.dat",
+        Stage::DreamLandN64     => "GrOp.dat",
+        Stage::Battlefield      => "GrNBa.dat",
+        Stage::PokemonStadium   => "GrPs.dat",
+        Stage::YoshisStory      => "GrOy.dat",
+        _ => todo!(),
+    }
 }
 
 pub const fn character_model_filename(character: CharacterColour) -> &'static str {
     use CharacterColour::*;
     match character {
         Fox(FoxColour::Neutral) => "PlFxNr.dat",
-        Fox(FoxColour::Lavender) => "PlFxLa.dat",
+        Fox(FoxColour::Blue) => "PlFxLa.dat",
         Fox(FoxColour::Green) => "PlFxGr.dat",
-        Fox(FoxColour::Orange) => "PlFxOr.dat",
+        Fox(FoxColour::Red) => "PlFxOr.dat",
 
         Falco(FalcoColour::Neutral) => "PlFcNr.dat",
         Falco(FalcoColour::Blue) => "PlFcBu.dat",
         Falco(FalcoColour::Green) => "PlFcGr.dat",
         Falco(FalcoColour::Red) => "PlFcRe.dat",
+
+        Marth(MarthColour::Red) => "PlMsRe.dat",
+        Marth(MarthColour::Neutral) => "PlMsBk.dat",
+        Marth(MarthColour::Black) => "PlMsNr.dat",
+        Marth(MarthColour::Green) => "PlMsGr.dat",
+        Marth(MarthColour::White) => "PlMsWh.dat",
+
+        _ => todo!(),
     }
 }
 
@@ -74,6 +72,7 @@ pub const fn character_data_filename(character: Character) -> &'static str {
     match character {
         Character::Fox => "PlFx.dat",
         Character::Falco => "PlFc.dat",
+        Character::Marth => "PlMs.dat",
         _ => todo!(),
     }
 }
@@ -82,6 +81,7 @@ pub const fn character_animation_filename(character: Character) -> &'static str 
     match character {
         Character::Fox => "PlFxAJ.dat",
         Character::Falco => "PlFcAJ.dat",
+        Character::Marth => "PlMsAJ.dat",
         _ => todo!(),
     }
 }
@@ -90,15 +90,7 @@ pub const fn inner_character_prefix(character: Character) -> &'static str {
     match character {
         Character::Fox => "Fx",
         Character::Falco => "Fc",
+        Character::Marth => "Ms",
         _ => todo!(),
-    }
-}
-
-impl CharacterColour {
-    pub fn character(self) -> Character {
-        match self {
-            CharacterColour::Fox(..) => Character::Fox,
-            CharacterColour::Falco(..) => Character::Falco,
-        }
     }
 }
