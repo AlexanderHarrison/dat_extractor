@@ -10,6 +10,9 @@ pub use extract_mesh::*;
 mod extract_anims;
 pub use extract_anims::*;
 
+mod extract_effects;
+pub use extract_effects::*;
+
 mod fighter_data;
 pub use fighter_data::*;
 

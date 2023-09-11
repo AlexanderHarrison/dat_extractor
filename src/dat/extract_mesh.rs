@@ -256,20 +256,35 @@ impl<'a> MapGOBJ<'a> {
     }
 }
 
-pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<impl Iterator<Item=Model> + 'a, DatExtractError> {
+/// returns (scale, models)
+pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl Iterator<Item=Model> + 'a), DatExtractError> {
     let stage_root = parsed_stage_dat.roots.iter()
         .find(|root| root.root_string == "map_head")
         .ok_or(DatExtractError::InvalidDatFile)?
         .hsd_struct.clone();
+    //let stage_root = parsed_stage_dat.roots.iter()
+    //    .find(|root| root.root_string == "map_head")
+    //    .ok_or(DatExtractError::InvalidDatFile)?
+    //    .hsd_struct.clone();
     let stage_root = MapHead::new(stage_root);
 
+    let ground_params = parsed_stage_dat.roots.iter()
+        .find(|root| root.root_string.starts_with("grGroundParam"))
+        .ok_or(DatExtractError::InvalidDatFile)?
+        .hsd_struct.clone();
+
+    let scale = ground_params.get_f32(0x00);
+
     //Ok(std::iter::once(extract_model_from_jobj(stage_root.get_model_groups().nth(3).unwrap().root_jobj(), None).unwrap()))
-    Ok(stage_root.get_model_groups()
-        .map(|m| extract_model_from_jobj(m.root_jobj(), None).unwrap()))
+    Ok((
+        scale, 
+        stage_root.get_model_groups()
+            .map(|m| extract_model_from_jobj(m.root_jobj(), None).unwrap())
+    ))
 }
 
 impl Model {
-    pub fn cube(scale: f32) -> Self {
+    pub fn cube() -> Self {
         const V: Vertex = Vertex { pos: Vec3::ZERO, uv: Vec2::ZERO, normal: Vec3::ZERO,
             weights: Vec4::ZERO, bones: UVec4::ZERO, colour: Vec4::ZERO };
 
@@ -284,20 +299,20 @@ impl Model {
 
             primitives: vec![Primitive::TriangleStrip { vert_start: 0, vert_len: 14 }].into(),
             vertices: vec![
-                Vertex { pos: Vec3::new(-1., -1.,  1.) * scale, colour: Vec4::new(0., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1.,  1.) * scale, colour: Vec4::new(1., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1.,  1.) * scale, colour: Vec4::new(1., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1., -1.) * scale, colour: Vec4::new(1., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1., -1.) * scale, colour: Vec4::new(0., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1., -1.) * scale, colour: Vec4::new(0., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1., -1.) * scale, colour: Vec4::new(1., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1., -1.) * scale, colour: Vec4::new(1., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1.,  1.) * scale, colour: Vec4::new(1., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1., -1.) * scale, colour: Vec4::new(0., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1.,  1.) * scale, colour: Vec4::new(0., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.) * scale, colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1.,  1.), colour: Vec4::new(1., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1., -1.), colour: Vec4::new(0., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1., -1.), colour: Vec4::new(1., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
             ].into(),
         }
     }
