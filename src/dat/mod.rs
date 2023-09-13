@@ -1,5 +1,5 @@
 mod hsd_struct;
-use hsd_struct::HSDStruct;
+pub use hsd_struct::HSDStruct;
 
 mod jobj;
 pub use jobj::{DOBJ, JOBJ};

@@ -80,6 +80,12 @@ impl<'a> HSDStruct<'a> {
         self.references.borrow().len()
     }
 
+    pub fn print_reference_locations(&self) {
+        for r in self.references.borrow().keys() {
+            println!("loc {}", r);
+        }
+    }
+
     pub fn get_bytes<'b>(&'b self, location: usize, len: usize) -> &'a [u8] {
         &self.data[location..location+len]
     }

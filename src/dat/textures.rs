@@ -129,40 +129,16 @@ impl<'a> TOBJ<'a> {
     pub fn texture(&self) -> Option<Texture> {
         // TODO get other texture properties?
         let hsd_image = self.hsd_struct.try_get_reference(0x4C)?;
-                                     
-        let data_buffer = hsd_image.get_buffer(0x00);
-
-        let width = hsd_image.get_i16(0x04) as usize;
-        let height = hsd_image.get_i16(0x06) as usize;
-        let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
-
-        let scale_x = self.hsd_struct.get_i8(0x3C) as f32;
-        let scale_y = self.hsd_struct.get_i8(0x3D) as f32;
 
         let wrap_u = WrapMode::from_u32(self.hsd_struct.get_u32(0x34));
         let wrap_v = WrapMode::from_u32(self.hsd_struct.get_u32(0x38));
 
-        let rgba_data = match format {
-            InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height),
-            InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
-            InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height),
-            InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height),
-            InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height),
-            InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
-            InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height),
-            InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height),
-            InternalTextureFormat::CI4 => {
-                let tlut_data = TLUT::new(self.hsd_struct.get_reference(0x50));
-                let palette = tlut_data.palette();
-                decode_ci4_image(data_buffer, &palette, width, height)
-            }
-            InternalTextureFormat::CI8 => {
-                let tlut_data = TLUT::new(self.hsd_struct.get_reference(0x50));
-                let palette = tlut_data.palette();
-                decode_ci8_image(data_buffer, &palette, width, height)
-            }
-            t => panic!("texture format {:?} unimplemented", t),
-        };
+        let scale_x = self.hsd_struct.get_i8(0x3C) as f32;
+        let scale_y = self.hsd_struct.get_i8(0x3D) as f32;
+        let tlut_data = self.hsd_struct.try_get_reference(0x50)
+            .map(TLUT::new);
+
+        let Image { width, height, rgba_data } = decode_image(hsd_image, tlut_data);
 
         Some(Texture {
             width,
@@ -174,6 +150,42 @@ impl<'a> TOBJ<'a> {
             wrap_v,
         })
     }
+}
+
+pub struct Image {
+    pub width: usize,
+    pub height: usize,
+    pub rgba_data: Box<[u32]>,
+}
+
+/// -> width, height, rgba_data
+pub fn decode_image(hsd_image: HSDStruct<'_>, tlut_data: Option<TLUT<'_>>) -> Image {
+    let data_buffer = hsd_image.get_buffer(0x00);
+    let width = hsd_image.get_i16(0x04) as usize;
+    let height = hsd_image.get_i16(0x06) as usize;
+    let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
+
+    let rgba_data = match format {
+        InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height),
+        InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
+        InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height),
+        InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height),
+        InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height),
+        InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
+        InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height),
+        InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height),
+        InternalTextureFormat::CI4 => {
+            let palette = tlut_data.unwrap().palette();
+            decode_ci4_image(data_buffer, &palette, width, height)
+        }
+        InternalTextureFormat::CI8 => {
+            let palette = tlut_data.unwrap().palette();
+            decode_ci8_image(data_buffer, &palette, width, height)
+        }
+        t => panic!("texture format {:?} unimplemented", t),
+    };
+
+    Image { width, height, rgba_data }
 }
 
 impl<'a> MOBJ<'a> {
@@ -512,7 +524,7 @@ fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize) -
                     let pixel = data[i] as usize;
                     i += 1;
 
-                    if y1 >= height || x1 >= width {
+                    if y1 >= height || x1+1 >= width {
                         continue
                     }
 
