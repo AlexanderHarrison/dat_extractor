@@ -1,4 +1,4 @@
-use crate::dat::{HSDRawFile, HSDStruct, Texture, JOBJ, extract_model_from_jobj, Model};
+use crate::dat::{HSDStruct, Texture, JOBJ, extract_model_from_jobj, Model};
 
 // Melee/Ef/SBM_EffectTable.cs (SBM_EffectTable)
 #[derive(Clone, Debug)]
