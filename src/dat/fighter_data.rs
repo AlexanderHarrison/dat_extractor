@@ -9,6 +9,14 @@ pub struct FighterData {
     pub character_name: Box<str>,
     pub animations: Box<[Animation]>,
     pub model: Model,
+
+    pub attributes: FighterAttributes,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FighterAttributes {
+    pub shield_bone: u16,
+    pub shield_size: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -18,15 +26,39 @@ pub struct FighterAction {
     pub animation_size: usize, // get => _s.GetInt32(0x08);
 }
 
+// SBM_FighterData.cs
+#[derive(Debug, Clone)]
+pub struct FighterDataRoot<'a> {
+    pub hsd_struct: HSDStruct<'a>
+}
+
+impl<'a> FighterDataRoot<'a> {
+    pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
+        Self { hsd_struct }
+    }
+
+    pub fn attributes(&self) -> FighterAttributes {
+        let centre_bubble = self.hsd_struct.get_reference(0x34);
+        FighterAttributes {
+            shield_bone: centre_bubble.get_u32(0x00) as u16,
+            shield_size: centre_bubble.get_f32(0x04),
+        }
+    }
+}
+
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
 pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
     let fighter_hsdfile = HSDRawFile::new(fighter_dat);
 
-    let name = fighter_hsdfile.roots[0].root_string;
+    let fighter_root_node = &fighter_hsdfile.roots[0];
+    let name = fighter_root_node.root_string;
     if !name.starts_with("ftData") || name.contains("Copy") {
         return None;
     }
+
+    let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
+    let attributes = fighter_data_root.attributes();
 
     let actions = parse_actions(&fighter_hsdfile)?;
     let animations = extract_anims(anim_dat, actions).ok()?;
@@ -37,7 +69,9 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         animations,
-        model
+        model,
+
+        attributes,
     })
 }
 
