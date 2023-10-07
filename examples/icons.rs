@@ -9,9 +9,9 @@ fn main() {
         println!("textures/texture{:03}.png", im);
         lodepng::encode_file(
             format!("textures/texture{:03}.png", im), 
-            &t.rgba_data,
-            t.width,
-            t.height,
+            t,
+            24,
+            24,
             lodepng::ColorType::BGRA, // TODO
             8
         ).unwrap();

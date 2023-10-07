@@ -165,27 +165,64 @@ pub fn decode_image(hsd_image: HSDStruct<'_>, tlut_data: Option<TLUT<'_>>) -> Im
     let height = hsd_image.get_i16(0x06) as usize;
     let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
 
-    let rgba_data = match format {
-        InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height),
-        InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height),
-        InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height),
-        InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height),
-        InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height),
-        InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height),
-        InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height),
-        InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height),
+    let mut rgba_data = vec![0u32; width * height].into_boxed_slice();
+
+    match format {
+        InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height, &mut rgba_data),
+        InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height, &mut rgba_data),
         InternalTextureFormat::CI4 => {
             let palette = tlut_data.unwrap().palette();
-            decode_ci4_image(data_buffer, &palette, width, height)
+            decode_ci4_image(data_buffer, &palette, width, height, &mut rgba_data)
         }
         InternalTextureFormat::CI8 => {
             let palette = tlut_data.unwrap().palette();
-            decode_ci8_image(data_buffer, &palette, width, height)
+            decode_ci8_image(data_buffer, &palette, width, height, &mut rgba_data)
         }
         t => panic!("texture format {:?} unimplemented", t),
     };
 
     Image { width, height, rgba_data }
+}
+
+pub fn decode_image_preallocated(
+    hsd_image: HSDStruct<'_>, 
+    tlut_data: Option<TLUT<'_>>,
+    rgba_data: &mut [u32],
+) -> (usize, usize) {
+    let data_buffer = hsd_image.get_buffer(0x00);
+    let width = hsd_image.get_i16(0x04) as usize;
+    let height = hsd_image.get_i16(0x06) as usize;
+    let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
+
+    assert!(rgba_data.len() >= width * height);
+
+    match format {
+        InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height, rgba_data),
+        InternalTextureFormat::CI4 => {
+            let palette = tlut_data.unwrap().palette();
+            decode_ci4_image(data_buffer, &palette, width, height, rgba_data)
+        }
+        InternalTextureFormat::CI8 => {
+            let palette = tlut_data.unwrap().palette();
+            decode_ci8_image(data_buffer, &palette, width, height, rgba_data)
+        }
+        t => panic!("texture format {:?} unimplemented", t),
+    };
+
+    (width, height)
 }
 
 impl<'a> MOBJ<'a> {
@@ -305,8 +342,7 @@ impl InternalTextureFormat {
 }
 
 // GXImageConverter.cs:396 (fromRGBA8)
-fn decode_rgba8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_rgba8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -329,13 +365,10 @@ fn decode_rgba8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:622 (fromRGB565)
-fn decode_rgb565_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_rgb565_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -355,13 +388,10 @@ fn decode_rgb565_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:622 (fromRGB5A3)
-fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -392,13 +422,10 @@ fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:706 (fromI4)
-fn decode_i4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_i4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     //if width < 8 || height < 8 {
@@ -426,13 +453,10 @@ fn decode_i4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:790 (fromI8)
-fn decode_i8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_i8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -451,13 +475,10 @@ fn decode_i8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:868 (fromIA4)
-fn decode_ia4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -480,13 +501,10 @@ fn decode_ia4_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:940 (fromIA8)
-fn decode_ia8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_ia8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -508,13 +526,10 @@ fn decode_ia8_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:1103 (fromCI4)
-fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut i = 0;
 
     for y in (0..height).step_by(8) {
@@ -534,13 +549,10 @@ fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize) -
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:1103 (fromCI8)
-fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
+fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut i = 0;
 
     for y in (0..height).step_by(4) {
@@ -559,17 +571,13 @@ fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize) -
             }
         }
     }
-
-    rgba_buffer
 }
 
 // GXImageConverter.cs:1245 (fromCMP)
 //
 // only decodes the first mipmap.
 // RGBA8 format
-fn decode_compressed_image(data: &[u8], width: usize, height: usize) -> Box<[u32]> {
-    let mut rgba_buffer = vec![0u32; width * height].into_boxed_slice();
-
+fn decode_compressed_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut c = [0u32; 4];
 
     fn get_r(n: u32) -> u32 { (n & 0x00FF0000) >> 16 }
@@ -658,7 +666,5 @@ fn decode_compressed_image(data: &[u8], width: usize, height: usize) -> Box<[u32
             i += 1;
         }
     }
-
-    rgba_buffer
 }
 
