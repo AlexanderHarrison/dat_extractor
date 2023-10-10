@@ -1,14 +1,15 @@
 use dat_tools::isoparser::ISODatFiles;
 use dat_tools::dat::PrimitiveType;
 
-use slippi_situation_parser::states::Character;
+use slp_parser::CharacterColour;
 use glam::f32::Vec4;
 use glam::Vec4Swizzles;
 
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let mut data = dat_tools::get_fighter_data(&mut files, Character::Fox).unwrap();
+    let c = CharacterColour::Peach(slp_parser::character_colours::PeachColour::Green);
+    let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
 
     for anim in data.animations.iter() {
         println!("{}", dat_tools::dat::demangle_anim_name(&*anim.name).unwrap());

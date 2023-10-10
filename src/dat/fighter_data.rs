@@ -1,6 +1,6 @@
 use crate::dat::{
-    HSDStruct, DatFile, Model,
-    HSDRawFile, Animation, extract_anims, extract_character_model
+    HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, Image,
+    HSDRawFile, Animation, extract_anims, extract_character_model,
 };
 use crate::parse_string;
 
@@ -11,6 +11,7 @@ pub struct FighterData {
     pub model: Model,
 
     pub attributes: FighterAttributes,
+    pub articles: Box<[Article]>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,6 +33,14 @@ pub struct FighterDataRoot<'a> {
     pub hsd_struct: HSDStruct<'a>
 }
 
+// SBM_ArticlePointer.cs (SBM_Article)
+#[derive(Debug, Clone)]
+pub struct Article {
+    pub model: Option<Model>,
+    pub images: Box<[Image]>,
+}
+
+
 impl<'a> FighterDataRoot<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
         Self { hsd_struct }
@@ -43,6 +52,59 @@ impl<'a> FighterDataRoot<'a> {
             shield_bone: centre_bubble.get_u32(0x00) as u16,
             shield_size: centre_bubble.get_f32(0x04),
         }
+    }
+
+    pub fn articles(&self) -> Option<Box<[Article]>> {
+        let article_ptrs = self.hsd_struct.get_reference(0x48);
+        let count = article_ptrs.len() / 4;
+        let mut articles = Vec::with_capacity(count);
+
+        let mut unused_articles = 0;
+
+        for i in 0..count {
+            // SBM_ArticlePointer.cs (SBM_Article)
+            if let Some(article) = article_ptrs.try_get_reference(4 * i) {
+                let mut model = None;
+
+                if let Some(attributes) = article.try_get_reference(0x00) {
+                    println!("scale: {}", attributes.get_f32(0x60));
+                }
+
+                // SBM_ArticlePointer.cs (SBM_ItemModel)
+                if let Some(item_model) = article.try_get_reference(0x10) {
+                    if let Some(root_jobj) = item_model.try_get_reference(0x00) {
+                        let model_root_jobj = JOBJ::new(root_jobj);
+                        model = Some(extract_model_from_jobj(model_root_jobj, None).ok()?);
+                    }
+                }
+
+                let mut images = Vec::new();
+
+                // SBM_ArticlePointer.cs (SBM_ItemState)
+                if let Some(item_state_array) = article.try_get_reference(0x0C) {
+                    for offset in (0..item_state_array.len()).step_by(0x10) {
+                        //if let Some(anim_joint) = item_state_array.try_get_reference(offset + 0x00) {
+                        //    crate::dat::extract_anim_joint_models(&mut models, anim_joint);
+                        //    println!("good try 1");
+                        //}
+
+                        if let Some(mat_anim_joint) = item_state_array.try_get_reference(offset + 0x04) {
+                            crate::dat::extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
+                        }
+                    }
+                }
+
+                articles.push(Article { model, images: images.into_boxed_slice() });
+            } else {
+                unused_articles += 1
+            }
+        }
+
+        if unused_articles != 0 {
+            println!("{} unused articles", unused_articles);
+        }
+
+        Some(articles.into_boxed_slice())
     }
 }
 
@@ -66,12 +128,15 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
 
+    let articles = fighter_data_root.articles()?;
+
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         animations,
         model,
 
         attributes,
+        articles,
     })
 }
 

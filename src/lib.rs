@@ -1,6 +1,8 @@
 pub mod dat;
 pub mod isoparser;
 
+// TODO - sibling, children, tree, functions
+
 use dat::FighterData;
 use isoparser::{ISOParseError, ISODatFiles};
 use slp_parser::{Stage, Character, CharacterColour, character_colours::*};
@@ -33,11 +35,11 @@ pub fn get_fighter_data(
         .ok_or(ISOParseError::InvalidISO)
 }
 
-pub fn get_common_models(files: &mut ISODatFiles) -> Box<[dat::Model]> {
+pub fn get_common_model(files: &mut ISODatFiles, model_idx: usize) -> Option<dat::Model> {
     let dat = files.read_file("EfCoData.dat").unwrap();
     let hsd_ef_dat = dat::HSDRawFile::new(&dat);
     let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
-    table.models()
+    table.model(model_idx)
 }
 
 // only extracts 24x24 icons (skips master hand, giga bowser)

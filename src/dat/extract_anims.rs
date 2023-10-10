@@ -317,6 +317,7 @@ fn extract_anim_transforms(anim_data: &[u8]) -> Box<[AnimTransform]> {
     let stream = Stream::new(anim_data);
     let hsd_file = HSDRawFile::open(stream);
 
+    // likely no other roots (none for all fox and peach animations)
     let anim_root = &hsd_file.roots[0];
     assert!(anim_root.root_string.contains("figatree"));
 

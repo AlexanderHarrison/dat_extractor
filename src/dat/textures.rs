@@ -152,6 +152,7 @@ impl<'a> TOBJ<'a> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Image {
     pub width: usize,
     pub height: usize,
