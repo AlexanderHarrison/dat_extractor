@@ -17,6 +17,7 @@ pub struct FighterData {
 #[derive(Debug, Clone, Copy)]
 pub struct FighterAttributes {
     pub shield_bone: u16,
+    pub item_hold_bone: u16,
     pub shield_size: f32,
 }
 
@@ -38,6 +39,7 @@ pub struct FighterDataRoot<'a> {
 pub struct Article {
     pub model: Option<Model>,
     pub images: Box<[Image]>,
+    pub scale: f32,
 }
 
 
@@ -47,10 +49,16 @@ impl<'a> FighterDataRoot<'a> {
     }
 
     pub fn attributes(&self) -> FighterAttributes {
-        let centre_bubble = self.hsd_struct.get_reference(0x34);
+        // SBM_CommonFighterAttributes.cs
+        let common_attributes = self.hsd_struct.get_reference(0x00);
+
+        // SBM_PlayerModelLookupTables.cs
+        let player_model_lookup_table = self.hsd_struct.get_reference(0x08);
+
         FighterAttributes {
-            shield_bone: centre_bubble.get_u32(0x00) as u16,
-            shield_size: centre_bubble.get_f32(0x04),
+            item_hold_bone: player_model_lookup_table.get_u8(0x10) as u16,
+            shield_bone: player_model_lookup_table.get_u8(0x11) as u16,
+            shield_size: common_attributes.get_f32(0x090),
         }
     }
 
@@ -66,9 +74,11 @@ impl<'a> FighterDataRoot<'a> {
             if let Some(article) = article_ptrs.try_get_reference(4 * i) {
                 let mut model = None;
 
-                if let Some(attributes) = article.try_get_reference(0x00) {
-                    println!("scale: {}", attributes.get_f32(0x60));
-                }
+                let scale = match article.try_get_reference(0x00) {
+                    // SBM_ArticlePointer.cs (SBM_ItemCommonAttr)
+                    Some(item_common_attributes) => item_common_attributes.get_f32(0x60),
+                    None => 1.0,
+                };
 
                 // SBM_ArticlePointer.cs (SBM_ItemModel)
                 if let Some(item_model) = article.try_get_reference(0x10) {
@@ -94,7 +104,7 @@ impl<'a> FighterDataRoot<'a> {
                     }
                 }
 
-                articles.push(Article { model, images: images.into_boxed_slice() });
+                articles.push(Article { model, scale, images: images.into_boxed_slice() });
             } else {
                 unused_articles += 1
             }

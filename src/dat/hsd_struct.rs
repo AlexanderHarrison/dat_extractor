@@ -110,6 +110,10 @@ impl<'a> HSDStruct<'a> {
         self.data[loc] as i8
     }
 
+    pub fn get_u8(&self, loc: usize) -> u8 {
+        self.data[loc]
+    }
+
     pub fn get_i16(&self, loc: usize) -> i16 {
         let bytes: [u8; 2] = self.data[loc..loc+2].try_into().unwrap();
         i16::from_be_bytes(bytes)

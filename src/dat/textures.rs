@@ -168,25 +168,10 @@ pub fn decode_image(hsd_image: HSDStruct<'_>, tlut_data: Option<TLUT<'_>>) -> Im
 
     let mut rgba_data = vec![0u32; width * height].into_boxed_slice();
 
-    match format {
-        InternalTextureFormat::CMP => decode_compressed_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::I4 => decode_i4_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::I8 => decode_i8_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::IA4 => decode_ia4_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::IA8 => decode_ia8_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::RGBA8 => decode_rgba8_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height, &mut rgba_data),
-        InternalTextureFormat::CI4 => {
-            let palette = tlut_data.unwrap().palette();
-            decode_ci4_image(data_buffer, &palette, width, height, &mut rgba_data)
-        }
-        InternalTextureFormat::CI8 => {
-            let palette = tlut_data.unwrap().palette();
-            decode_ci8_image(data_buffer, &palette, width, height, &mut rgba_data)
-        }
-        t => panic!("texture format {:?} unimplemented", t),
-    };
+    let palette = tlut_data.map(|tlut| tlut.palette());
+    let pal_ref = palette.as_ref().map(|pal| &**pal);
+
+    decode_data(format, width, height, data_buffer, pal_ref, &mut rgba_data);
 
     Image { width, height, rgba_data }
 }
@@ -201,6 +186,15 @@ pub fn decode_image_preallocated(
     let height = hsd_image.get_i16(0x06) as usize;
     let format = InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap();
 
+    let palette = tlut_data.map(|tlut| tlut.palette());
+    let pal_ref = palette.as_ref().map(|pal| &**pal);
+
+    decode_data(format, width, height, data_buffer, pal_ref, rgba_data);
+
+    (width, height)
+}
+
+pub fn decode_data(format: InternalTextureFormat, width: usize, height: usize, data_buffer: &[u8], palette: Option<&[u32]>, rgba_data: &mut [u32]) {
     assert!(rgba_data.len() >= width * height);
 
     match format {
@@ -213,17 +207,15 @@ pub fn decode_image_preallocated(
         InternalTextureFormat::RGB565 => decode_rgb565_image(data_buffer, width, height, rgba_data),
         InternalTextureFormat::RGB5A3 => decode_rgb5a3_image(data_buffer, width, height, rgba_data),
         InternalTextureFormat::CI4 => {
-            let palette = tlut_data.unwrap().palette();
+            let palette = palette.unwrap();
             decode_ci4_image(data_buffer, &palette, width, height, rgba_data)
         }
         InternalTextureFormat::CI8 => {
-            let palette = tlut_data.unwrap().palette();
+            let palette = palette.unwrap();
             decode_ci8_image(data_buffer, &palette, width, height, rgba_data)
         }
         t => panic!("texture format {:?} unimplemented", t),
     };
-
-    (width, height)
 }
 
 impl<'a> MOBJ<'a> {
@@ -263,46 +255,7 @@ impl<'a> TLUT<'a> {
         let format = self.format();
         let data = self.data();
 
-        let mut palette = Vec::with_capacity(count);
-
-        for i in 0..count {
-            let bytes: [u8; 2] = [data[i*2], data[i*2+1]];
-            let pixel = u16::from_be_bytes(bytes) as u32;
-
-            let r; let g; let b; let a;
-            match format {
-                TLUTFormat::IA8 => {
-                    a = pixel >> 8;
-                    r = pixel & 0xff;
-                    b = r;
-                    g = r;
-                }
-                TLUTFormat::RGB565 => {
-                    a = 255;
-                    b = (((pixel >> 11) & 0x1F) << 3) & 0xff;
-                    g = (((pixel >> 5) & 0x3F) << 2) & 0xff;
-                    r = (((pixel >> 0) & 0x1F) << 3) & 0xff;
-                }
-                TLUTFormat::RGB5A3 => {
-                    // GXImageConverter.cs:601 (DecodeRGBA3)
-                    if (pixel & (1 << 15)) != 0 { //RGB555
-                        a = 255;
-                        b = (((pixel >> 10) & 0x1F) * 255) / 31;
-                        g = (((pixel >> 5) & 0x1F) * 255) / 31;
-                        r = (((pixel >> 0) & 0x1F) * 255) / 31;
-                    } else { //RGB4A3
-                        a = (((pixel >> 12) & 0x07) * 255) / 7;
-                        b = (((pixel >> 8) & 0x0F) * 255) / 15;
-                        g = (((pixel >> 4) & 0x0F) * 255) / 15;
-                        r = (((pixel >> 0) & 0x0F) * 255) / 15;
-                    }
-                }
-            }
-
-            palette.push((r << 0) | (g << 8) | (b << 16) | (a << 24));
-        }
-
-        palette.into_boxed_slice()
+        decode_palette(count, format, data)
     }
 
     pub fn data(&self) -> &'a [u8] {
@@ -310,16 +263,65 @@ impl<'a> TLUT<'a> {
     }
 
     pub fn format(&self) -> TLUTFormat {
-        match self.hsd_struct.get_u32(0x04) {
-            0 => TLUTFormat::IA8,
-            1 => TLUTFormat::RGB565,
-            2 => TLUTFormat::RGB5A3,
-            _ => panic!("invalid TLUT format")
-        }
+        TLUTFormat::new(self.hsd_struct.get_u32(0x04)).unwrap()
     }
 
     pub fn colour_count(&self) -> u16 {
         self.hsd_struct.get_u16(0x0c)
+    }
+}
+
+pub fn decode_palette(count: usize, format: TLUTFormat, data: &[u8]) -> Box<[u32]> {
+    let mut palette = Vec::with_capacity(count);
+
+    for i in 0..count {
+        let bytes: [u8; 2] = [data[i*2], data[i*2+1]];
+        let pixel = u16::from_be_bytes(bytes) as u32;
+
+        let r; let g; let b; let a;
+        match format {
+            TLUTFormat::IA8 => {
+                a = pixel >> 8;
+                r = pixel & 0xff;
+                b = r;
+                g = r;
+            }
+            TLUTFormat::RGB565 => {
+                a = 255;
+                b = (((pixel >> 11) & 0x1F) << 3) & 0xff;
+                g = (((pixel >> 5) & 0x3F) << 2) & 0xff;
+                r = (((pixel >> 0) & 0x1F) << 3) & 0xff;
+            }
+            TLUTFormat::RGB5A3 => {
+                // GXImageConverter.cs:601 (DecodeRGBA3)
+                if (pixel & (1 << 15)) != 0 { //RGB555
+                    a = 255;
+                    b = (((pixel >> 10) & 0x1F) * 255) / 31;
+                    g = (((pixel >> 5) & 0x1F) * 255) / 31;
+                    r = (((pixel >> 0) & 0x1F) * 255) / 31;
+                } else { //RGB4A3
+                    a = (((pixel >> 12) & 0x07) * 255) / 7;
+                    b = (((pixel >> 8) & 0x0F) * 255) / 15;
+                    g = (((pixel >> 4) & 0x0F) * 255) / 15;
+                    r = (((pixel >> 0) & 0x0F) * 255) / 15;
+                }
+            }
+        }
+
+        palette.push((r << 0) | (g << 8) | (b << 16) | (a << 24));
+    }
+
+    palette.into_boxed_slice()
+}
+
+impl TLUTFormat {
+    pub fn new(n: u32) -> Option<Self> {
+        Some(match n {
+            0 => TLUTFormat::IA8,
+            1 => TLUTFormat::RGB565,
+            2 => TLUTFormat::RGB5A3,
+            _ => return None
+        })
     }
 }
 
@@ -339,6 +341,29 @@ impl InternalTextureFormat {
             14 => InternalTextureFormat::CMP   ,
             _ => return None,
         })
+    }
+
+    // Tools/Textures/GXImageConverter.cs (GetImageSize)
+    pub fn data_size(self, width: usize, height: usize) -> usize {
+        let width = if width % 4 != 0 { width + 4 - (width % 4) } else { width };
+        let size = height * width;
+
+        use InternalTextureFormat::*;
+        match self {
+            CI4 | I4 | CMP => size / 2,
+            IA4 | I8 | CI14X2 | CI8 => size,
+            IA8 | RGB565 | RGB5A3 => size * 2,
+            RGBA8 => size * 4,
+        }
+    }
+
+    pub fn is_paletted(self) -> bool {
+        match self {
+            InternalTextureFormat::CI4 => true,
+            InternalTextureFormat::CI8 => true,
+            InternalTextureFormat::CI14X2 => true,
+            _ => false,
+        }
     }
 }
 

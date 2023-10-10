@@ -151,13 +151,12 @@ pub const fn character_data_filename(character: Character) -> &'static str {
 }
 
 pub const fn character_effect_filename(character: Character) -> Option<&'static str> {
-    match character {
-        Character::Fox   => Some("EfFxData.dat"),
-        Character::Falco => Some("EfFxData.dat"), // maybe??
-        Character::Marth => Some("PlMsData.dat"),
-        Character::Peach => Some("PlMsData.dat"),
-        _ => todo!(),
-    }
+    Some(match character {
+        Character::Fox   => "EfFxData.dat",
+        Character::Marth => "PlMsData.dat",
+        Character::Peach => "PlMsData.dat",
+        _ => panic!("probably need to implement more characters in dat_tools::character_effect_filename") 
+    })
 }
 
 pub const fn character_animation_filename(character: Character) -> &'static str {

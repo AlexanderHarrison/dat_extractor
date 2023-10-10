@@ -1,4 +1,5 @@
-use crate::dat::{HSDStruct, Texture, JOBJ, extract_model_from_jobj, Model};
+use crate::dat::{InternalTextureFormat, HSDStruct, Image, TLUTFormat, 
+    JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data};
 
 // Melee/Ef/SBM_EffectTable.cs (SBM_EffectTable)
 #[derive(Clone, Debug)]
@@ -19,8 +20,8 @@ impl<'a> EffectTable<'a> {
         }
     }
 
-    pub fn texture_bank(&self) -> TextureBank<'a> {
-        TextureBank::new(self.hsd_struct.get_reference(0x04))
+    pub fn texture_bank(&self) -> Option<TextureBank<'a>> {
+        self.hsd_struct.try_get_reference(0x04).map(TextureBank::new)
     }
 
     pub fn models(&self) -> Box<[Model]> {
@@ -46,6 +47,26 @@ impl<'a> EffectTable<'a> {
         extract_model_from_jobj(jobj, None).ok()
     }
 
+    pub fn hidden_mat_animation_textures(&self) -> Box<[Image]> {
+        let mut images = Vec::new();
+
+        let count = (self.hsd_struct.len() - 0x08) / 0x14;
+        for i in 0..count {
+            // Melee/Ef/SBM_EffectTable.cs (SBM_EffectModel)
+            let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * i, 0x14);
+
+            // HSD_MatAnimJoint
+            let mat_anim_joint = match model_struct.try_get_reference(0x0C) {
+                Some(a) => a,
+                None => continue,
+            };
+
+            extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
+        }
+
+        images.into_boxed_slice()
+    }
+
     pub fn hidden_animation_models(&self) -> Box<[Model]> {
         let mut models = Vec::new();
 
@@ -55,28 +76,22 @@ impl<'a> EffectTable<'a> {
             let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * i, 0x14);
 
             // HSD_AnimJoint
-            let anim_joint = match model_struct.try_get_reference(0x08) {
-                Some(a) => a,
-                None => continue,
+            match model_struct.try_get_reference(0x08) {
+                Some(anim_joint) => extract_anim_joint_models(&mut models, anim_joint),
+                None => (),
             };
-
-            extract_anim_joint_models(&mut models, anim_joint);
 
             // HSD_MatAnimJoint
-            let mat_anim_joint = match model_struct.try_get_reference(0x0C) {
-                Some(a) => a,
-                None => continue,
+            match model_struct.try_get_reference(0x0C) {
+                Some(mat_anim_joint) => extract_mat_anim_joint_models(&mut models, mat_anim_joint),
+                None => (),
             };
-
-            extract_mat_anim_joint_models(&mut models, mat_anim_joint);
 
             // HSD_ShapeAnimJoint
-            let shape_anim_joint = match model_struct.try_get_reference(0x10) {
-                Some(a) => a,
-                None => continue,
+            match model_struct.try_get_reference(0x10) {
+                Some(shape_anim_joint) => extract_mat_anim_joint_models(&mut models, shape_anim_joint),
+                None => (),
             };
-
-            extract_shape_anim_joint_models(&mut models, shape_anim_joint);
         }
 
         models.into_boxed_slice()
@@ -209,28 +224,57 @@ impl<'a> TextureBank<'a> {
         }
     }
 
-    pub fn length(&self) -> u32 {
+    pub fn texture_count(&self) -> u32 {
         self.hsd_struct.get_u32(0x00)
     }
 
-    pub fn textures(&self) -> Box<[Texture]> {
-        let len = self.length() as usize;
+    pub fn textures(&self) -> Box<[Image]> {
+        let texture_count = self.texture_count() as usize;
 
-        //let mut textures = Vec::with_capacity(len);
+        let mut textures = Vec::with_capacity(texture_count);
 
-        for i in 0..len {
-            let offset = self.hsd_struct.get_u32(0x04 * i) as usize; 
-            let texture_len = if i+1 < len {
-                self.hsd_struct.get_u32(0x04 * (i+1)) as usize - offset
+        for i in 1..=texture_count {
+            let start = self.hsd_struct.get_u32(0x04 * i) as usize; 
+            let end = if i < texture_count {
+                self.hsd_struct.get_u32(0x04 * (i+1)) as usize
             } else {
-                self.hsd_struct.len() - offset
+                self.hsd_struct.len()
             };
 
-            let bank_texture = self.hsd_struct.get_embedded_struct(offset, texture_len);
-            let image_count = bank_texture.get_u32(0x00);
-            println!("{}", image_count);
+            let texture_len = end - start;
+
+            // HSD_TexGraphic
+            let bank_texture = self.hsd_struct.get_embedded_struct(start, texture_len);
+            let image_count = bank_texture.get_u32(0x00) as usize;
+
+            let width = bank_texture.get_u32(0x0C) as usize;
+            let height = bank_texture.get_u32(0x10) as usize;
+
+            let f = bank_texture.get_u32(0x04);
+            let tex_format = InternalTextureFormat::new(f).unwrap();
+            let tlut_format = TLUTFormat::new(bank_texture.get_u32(0x08)).unwrap();
+
+            for j in 0..image_count {
+                let mut rgba_data = vec![0u32; width * height].into_boxed_slice();
+
+                let image_offset = bank_texture.get_u32(j * 4 + 0x18) as usize - start;
+                let size = tex_format.data_size(width, height);
+                let image_data = bank_texture.get_bytes(image_offset, size);
+
+                if tex_format.is_paletted() {
+                    let pal_offset = bank_texture.get_u32((j + image_count) * 4 + 0x18) as usize - start;
+                    let pal_data = bank_texture.get_bytes(pal_offset, 0x200); // hardcoded for some reason
+                    let palette = decode_palette(0x100, tlut_format, pal_data);
+                    
+                    decode_data(tex_format, width, height, image_data, Some(&palette), &mut rgba_data);
+                } else {
+                    decode_data(tex_format, width, height, image_data, None, &mut rgba_data);
+                }
+
+                textures.push(Image { width, height, rgba_data });
+            }
         }
-        
-        todo!()
+
+        textures.into_boxed_slice()
     }
 }
