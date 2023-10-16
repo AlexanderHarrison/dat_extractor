@@ -1,5 +1,5 @@
 use crate::dat::{
-    HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, Image,
+    HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, parse_joint_anim,
     HSDRawFile, Animation, extract_anims, extract_character_model,
 };
 use crate::parse_string;
@@ -38,10 +38,9 @@ pub struct FighterDataRoot<'a> {
 #[derive(Debug, Clone)]
 pub struct Article {
     pub model: Option<Model>,
-    pub images: Box<[Image]>,
     pub scale: f32,
+    pub animations: Option<Box<[Animation]>>,
 }
-
 
 impl<'a> FighterDataRoot<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
@@ -63,7 +62,10 @@ impl<'a> FighterDataRoot<'a> {
     }
 
     pub fn articles(&self) -> Option<Box<[Article]>> {
-        let article_ptrs = self.hsd_struct.get_reference(0x48);
+        let article_ptrs = match self.hsd_struct.try_get_reference(0x48) {
+            Some(ptrs) => ptrs,
+            None => return Some(Box::new([])),
+        };
         let count = article_ptrs.len() / 4;
         let mut articles = Vec::with_capacity(count);
 
@@ -88,23 +90,41 @@ impl<'a> FighterDataRoot<'a> {
                     }
                 }
 
-                let mut images = Vec::new();
+                let mut animations = None;
 
-                // SBM_ArticlePointer.cs (SBM_ItemState)
-                if let Some(item_state_array) = article.try_get_reference(0x0C) {
-                    for offset in (0..item_state_array.len()).step_by(0x10) {
-                        //if let Some(anim_joint) = item_state_array.try_get_reference(offset + 0x00) {
-                        //    crate::dat::extract_anim_joint_models(&mut models, anim_joint);
-                        //    println!("good try 1");
-                        //}
+                if let Some(item_states) = article.try_get_reference(0x0C) {
+                    let count = item_states.len() / 0x10;
+                    let mut anim_vec = Vec::with_capacity(count);
 
-                        if let Some(mat_anim_joint) = item_state_array.try_get_reference(offset + 0x04) {
-                            crate::dat::extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
-                        }
+                    for i in 0..count {
+                        // Melee/Pl/SBM_ArticlePointer.cs (SBM_ItemState)
+                        let item_state = item_states.get_embedded_struct(i * 0x10, 0x10);
+
+                        let joint_anim_joint = item_state.get_reference(0x00);
+                        let anim = parse_joint_anim(joint_anim_joint).unwrap();
+                        anim_vec.push(anim);
                     }
+
+                    animations = Some(anim_vec.into_boxed_slice());
                 }
 
-                articles.push(Article { model, scale, images: images.into_boxed_slice() });
+                //let mut images = Vec::new();
+
+                //// SBM_ArticlePointer.cs (SBM_ItemState)
+                //if let Some(item_state_array) = article.try_get_reference(0x0C) {
+                //    for offset in (0..item_state_array.len()).step_by(0x10) {
+                //        //if let Some(anim_joint) = item_state_array.try_get_reference(offset + 0x00) {
+                //        //    crate::dat::extract_anim_joint_models(&mut models, anim_joint);
+                //        //    println!("good try 1");
+                //        //}
+
+                //        if let Some(mat_anim_joint) = item_state_array.try_get_reference(offset + 0x04) {
+                //            crate::dat::extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
+                //        }
+                //    }
+                //}
+
+                articles.push(Article { model, scale, animations });
             } else {
                 unused_articles += 1
             }
@@ -150,16 +170,36 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     })
 }
 
-//pub fn get_high_poly_mesh_jobj<'a>(fighter_hsd: &HSDRawFile<'a>) -> JOBJ<'a> {
-pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> &'a [u8] {
+pub struct HighPolyBoneIndicies {
+    pub groups: Box<[(u16, u16)]>, // turned into model groups
+    pub indicies: Box<[u8]>,
+}
+
+pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> HighPolyBoneIndicies {
     let fighter_root = &fighter_hsd.roots[0];
+
+    // SBM_PlayerModelLookupTables
     let lookup_tables = fighter_root.hsd_struct.get_reference(0x08);
+
     let costume_table = lookup_tables.get_array(0x10, 0x04).next().unwrap();
-    let high_poly_table = costume_table.get_array(0x08, 0x00).next().unwrap();
-    let jobj_table = high_poly_table.get_array(0x08, 0x04).next().unwrap();
-    let count = jobj_table.get_i32(0x00) as usize;
-    &jobj_table.get_buffer(0x04)[..count]
-    //high_poly_table.get_i32(0x00)
+
+    let mut indicies = Vec::with_capacity(64);
+    let mut groups = Vec::with_capacity(8);
+    for high_poly_table in costume_table.get_array(0x08, 0x00) {
+        if let Some(jobj_table_iter) = high_poly_table.try_get_array(0x08, 0x04) {
+            for jobj_table in jobj_table_iter {
+                let count = jobj_table.get_i32(0x00) as usize;
+                let new = &jobj_table.get_buffer(0x04)[..count];
+                groups.push((indicies.len() as u16, new.len() as u16));
+                indicies.extend_from_slice(new);
+            }
+        }
+    }
+
+    HighPolyBoneIndicies {
+        groups: groups.into_boxed_slice(),
+        indicies: indicies.into_boxed_slice(),
+    }
 }
 
 pub fn parse_actions(fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {

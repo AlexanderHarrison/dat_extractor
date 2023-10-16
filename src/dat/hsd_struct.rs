@@ -34,13 +34,55 @@ impl<'a> HSDStruct<'a> {
         }
     }
 
-    /// stride is length of HSDStruct I think
+    // returns in dfs order
+    pub fn iter_joint_tree(self, child_offset: usize, sibling_offset: usize) -> impl Iterator<Item=HSDStruct<'a>> {
+        let mut path = vec![self];
+        std::iter::from_fn(move || {
+            let next = path.last()?.clone();
+
+            if let Some(child) = next.try_get_reference(child_offset) {
+                path.push(child);
+            } else {
+                loop {
+                    let parent = match path.pop() {
+                        Some(parent) => parent,
+                        None => break,
+                    };
+                    if let Some(sibling) = parent.try_get_reference(sibling_offset) {
+                        path.push(sibling);
+                        break;
+                    }
+                }
+            }
+
+            Some(next)
+        })
+    }
+
+    pub fn iter_joint_list(self, sibling_offset: usize) -> impl Iterator<Item=HSDStruct<'a>> {
+        std::iter::successors(Some(self), move |prev| prev.try_get_reference(sibling_offset))
+    }
+
+
+    /// stride is length of HSDStruct given by hsdraw
     // HSD_Accessor.cs:467 (HSDArrayAccessor<T>)
     pub fn get_array(&self, stride: usize, loc: usize) -> impl Iterator<Item=HSDStruct<'a>> {
         let data = self.get_reference(loc);
         let len = data.len() / stride;
 
         (0..len).map(move |i| data.get_embedded_struct(stride * i, stride))
+    }
+
+    /// stride is length of HSDStruct given by hsdraw
+    // HSD_Accessor.cs:467 (HSDArrayAccessor<T>)
+    pub fn try_get_array(&self, stride: usize, loc: usize) -> Option<impl Iterator<Item=HSDStruct<'a>>> {
+        let data = match self.try_get_reference(loc) {
+            Some(data) => data,
+            None => return None,
+        };
+        let len = data.len() / stride;
+
+        Some((0..len).map(move |i| data.get_embedded_struct(stride * i, stride)))
     }
 
     pub fn get_embedded_struct<'b>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {

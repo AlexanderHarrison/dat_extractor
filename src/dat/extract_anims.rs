@@ -142,10 +142,20 @@ pub struct AnimDatFile<'a> {
     pub data: &'a [u8],
 }
 
+pub type AnimFlags = u32;
+pub mod anim_flags {
+    use super::AnimFlags;
+
+    // TODO
+    pub const LOOP: AnimFlags = 1 << 29;
+}
+
 #[derive(Clone, Debug)]
 pub struct Animation {
     pub name: Box<str>,
     pub transforms: Box<[AnimTransform]>,
+    pub flags: AnimFlags,
+    pub end_frame: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -156,6 +166,7 @@ pub struct AnimTransform {
 
 #[derive(Clone, Debug)]
 pub struct AnimTrack {
+    pub start_frame: f32,
     pub track_type: TrackType,
     pub keys: Box<[Key]>,
 }
@@ -227,14 +238,27 @@ pub fn extract_anims(
     for action in actions.to_vec().into_iter() {
         let offset = action.animation_offset;
         let size = action.animation_size;
-        let data = &aj_dat.data[offset..offset+size];
+        let anim_data = &aj_dat.data[offset..offset+size];
 
         // TODO might be discarding some animations??
         if let Some(name) = action.name {
             if animations.iter().all(|a| *a.name != *name) {
+                let stream = Stream::new(anim_data);
+                let hsd_file = HSDRawFile::open(stream);
+
+                // likely no other roots
+                let anim_root = &hsd_file.roots[0];
+                assert!(anim_root.root_string.contains("figatree"));
+
+                let figatree = FigaTree::new(anim_root.hsd_struct.clone());
+
+                let frame_count = figatree.frame_count();
+
                 let animation = Animation {
                     name,
-                    transforms: extract_anim_transforms(data)
+                    transforms: extract_anim_transforms(figatree),
+                    end_frame: frame_count,
+                    flags: 0,
                 };
 
                 animations.push(animation);
@@ -248,10 +272,16 @@ pub fn extract_anims(
 impl Animation {
     pub fn frame_at(
         &self, 
-        frame_num: f32, 
+        mut frame_num: f32, 
         prev_frame: &mut AnimationFrame,
         model: &Model,
     ) {
+        if self.flags & anim_flags::LOOP != 0 {
+            while frame_num > self.end_frame {
+                frame_num -= self.end_frame;
+            }
+        }
+
         for transform in self.transforms.iter() {
             let bone_index = transform.bone_index;
             let base_transform = &model.base_transforms[bone_index];
@@ -260,8 +290,7 @@ impl Animation {
 
         // Remove translation from root jobj.
         // This is given by slippi recording.
-        let (root_scale, root_rot, _) = prev_frame.animated_transforms[1].to_scale_rotation_translation();
-        prev_frame.animated_transforms[1] = Mat4::from_scale_rotation_translation(root_scale, root_rot, Vec3::ZERO);
+        prev_frame.animated_transforms[1].w_axis = Vec4::new(0.0, 0.0, 0.0, 1.0);
 
         for (i, animated_transform) in prev_frame.animated_transforms.iter().enumerate() {
             let animated_world_transform = match model.bones[i].parent {
@@ -287,7 +316,7 @@ impl AnimTransform {
 
         use TrackType::*;
         for track in self.tracks.iter() {
-            let val: f32 = track.get_value(frame);
+            let val: f32 = track.get_value(frame + track.start_frame);
 
             match track.track_type {
                 RotateX => euler_rotation.x = val,
@@ -299,6 +328,7 @@ impl AnimTransform {
                 ScaleX => scale.x = val,
                 ScaleY => scale.y = val,
                 ScaleZ => scale.z = val,
+                PTCL | BRANCH => todo!(),
             }
         }
 
@@ -313,16 +343,7 @@ impl AnimTransform {
     }
 }
 
-fn extract_anim_transforms(anim_data: &[u8]) -> Box<[AnimTransform]> {
-    let stream = Stream::new(anim_data);
-    let hsd_file = HSDRawFile::open(stream);
-
-    // likely no other roots (none for all fox and peach animations)
-    let anim_root = &hsd_file.roots[0];
-    assert!(anim_root.root_string.contains("figatree"));
-
-    let figatree = FigaTree::new(anim_root.hsd_struct.clone());
-
+fn extract_anim_transforms(figatree: FigaTree) -> Box<[AnimTransform]> {
     let mut transforms = Vec::new();
 
     // I pray that bone_index is correct here...
@@ -332,7 +353,8 @@ fn extract_anim_transforms(anim_data: &[u8]) -> Box<[AnimTransform]> {
     for (i, node) in figatree.get_nodes().iter().enumerate() {
         let mut tracks = Vec::new();
         for track in node.tracks.iter() {
-            tracks.push(decode_track(track))
+            let data = hsd_track_data(track);
+            tracks.push(decode_anim_data(data))
         }
 
         let transform = AnimTransform {
@@ -388,20 +410,47 @@ fn parse_float(stream: &mut Stream<'_>, format: AnimDataFormat, scale: f32) -> f
     }
 }
 
-fn decode_track(track: &Track<'_>) -> AnimTrack {
-    let track_type = track.track_type();
+pub struct TrackOrFOBJData<'a> {
+    pub track_type: TrackType,
+    pub data: &'a [u8],
+    pub value_scale: f32,
+    pub tan_scale: f32,
+    pub value_format: AnimDataFormat,
+    pub tan_format: AnimDataFormat,
+    pub start_frame: f32,
+}
 
-    // buffer not at 0x04 as in FOBJ! 
-    // FOBJs are constructed from Tracks, and hold the Buffer ptr at 0x08 instead
-    // We never bother to convert Tracks to FOBJs
-    let mut buffer = Stream::new(track.hsd_struct.get_reference(0x08).data);
+fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a> {
+    TrackOrFOBJData {
+        track_type: track.track_type(),
+        data: track.hsd_struct.get_reference(0x08).data,
+        value_scale: track.value_scale(),
+        tan_scale: track.tan_scale(),
+        value_format: track.value_format(),
+        tan_format: track.tan_format(),
+        start_frame: track.start_frame(),
+    }
+}
+
+pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
+    let track_type = track.track_type;
+
+    if track_type == TrackType::PTCL { 
+        return AnimTrack {
+            start_frame: track.start_frame,
+            track_type,
+            keys: Box::new([]),
+        }
+    }
+
+    let mut buffer = Stream::new(track.data);
     let stream = &mut buffer;
     let mut clock: f32 = 0.0;
 
-    let value_scale = track.value_scale();
-    let tan_scale = track.tan_scale();
-    let value_format = track.value_format();
-    let tan_format = track.tan_format();
+    let value_scale = track.value_scale;
+    let tan_scale = track.tan_scale;
+    let value_format = track.value_format;
+    let tan_format = track.tan_format;
 
     let mut melee_keys = Vec::new();
 
@@ -520,6 +569,7 @@ fn decode_track(track: &Track<'_>) -> AnimTrack {
     }
 
     AnimTrack {
+        start_frame: track.start_frame,
         keys: keys.into_boxed_slice(),
         track_type,
     }
@@ -725,6 +775,10 @@ impl<'a> Track<'a> {
         (1 << (self.tan_flag() & 0x1F)) as f32
     }
 
+    pub fn start_frame(&self) -> f32 {
+        self.hsd_struct.get_u16(0x02) as f32
+    }
+
     pub fn value_format(&self) -> AnimDataFormat {
         AnimDataFormat::from_u8(self.value_flag() & 0xE0)
     }
@@ -739,6 +793,10 @@ impl<'a> FigaTree<'a> {
         Self {
             hsd_struct
         }
+    }
+
+    pub fn frame_count(&self) -> f32 {
+        self.hsd_struct.get_f32(0x08)
     }
 
     pub fn get_nodes<'b>(&'b self) -> Box<[FigaTreeNode<'a>]> {
@@ -783,7 +841,7 @@ pub enum TrackType {
     ScaleY,
     ScaleZ,
     //NODE,
-    //BRANCH,
+    BRANCH = 12,
     //SETBYTE0,
     //SETBYTE1,
     //SETBYTE2,
@@ -804,7 +862,7 @@ pub enum TrackType {
     //SETFLOAT7,
     //SETFLOAT8,
     //SETFLOAT9,
-    //PTCL = 40
+    PTCL = 40 // Particle
 }
 
 
@@ -830,7 +888,7 @@ impl TrackType {
             // Node case not covered, TranslateX is the default.
             11 => TranslateX, 
 
-            //12 => BRANCH,
+            12 => BRANCH,
             //13 => SETBYTE0,
             //14 => SETBYTE1,
             //15 => SETBYTE2,
@@ -851,7 +909,7 @@ impl TrackType {
             //30 => SETFLOAT7,
             //31 => SETFLOAT8,
             //32 => SETFLOAT9,
-            //40 => PTCL,
+            40 => PTCL,
             _ => return None,
         })
     }       

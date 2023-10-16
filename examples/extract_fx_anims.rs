@@ -1,25 +1,39 @@
 use dat_tools::isoparser::ISODatFiles;
-use dat_tools::dat::PrimitiveType;
-
-use slp_parser::CharacterColour;
-use glam::f32::Vec4;
-use glam::Vec4Swizzles;
+//use dat_tools::dat::PrimitiveType;
+//
+//use slp_parser::CharacterColour;
+//use glam::f32::Vec4;
+//use glam::Vec4Swizzles;
 
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let c = CharacterColour::Peach(slp_parser::character_colours::PeachColour::Green);
-    let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
+    
+    let dat = files.read_file("EfFxData.dat").unwrap();
+    let hsd_ef_dat = dat_tools::dat::HSDRawFile::new(&dat);
+    let table = dat_tools::dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
+    let anims = table.joint_anim(0).unwrap();
 
-    for anim in data.animations.iter() {
-        println!("{}", dat_tools::dat::demangle_anim_name(&*anim.name).unwrap());
-        //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
-        //if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
-        //    data.skeleton.apply_animation(10.0, &anim);
-        //    //break;
-        //}
+    println!("bones: {}", table.model(0).unwrap().bones.len());
+
+    for transform in anims.transforms.iter() {
+        for track in transform.tracks.iter() {
+            println!("{:?}", track.track_type);
+        }
     }
-    return;
+
+    //let c = CharacterColour::Peach(slp_parser::character_colours::PeachColour::Green);
+    //let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
+
+    //for anim in data.animations.iter() {
+    //    println!("{}", dat_tools::dat::demangle_anim_name(&*anim.name).unwrap());
+    //    //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
+    //    //if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
+    //    //    data.skeleton.apply_animation(10.0, &anim);
+    //    //    //break;
+    //    //}
+    //}
+    //return;
 
 //    let bones = &*data.skeleton.bones;
 //    //data.skeleton.bone_tree_roots[0].inspect_each(&mut |b| println!("{}", b.index)); return;

@@ -1,4 +1,4 @@
-use crate::dat::{HSDStruct, HSDRawFile, JOBJ, DatExtractError, textures::{try_decode_texture, Texture}};
+use crate::dat::{HSDStruct, HSDRawFile, JOBJ, HighPolyBoneIndicies, DatExtractError, textures::{try_decode_texture, Texture}};
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
 
@@ -19,7 +19,14 @@ pub struct PrimitiveGroup {
     pub texture_idx: Option<u16>,
 
     pub prim_start: u16,
-    pub prim_len: u16,
+    pub prim_len: u8,
+    pub model_group_idx: u8,
+}
+
+#[derive(Copy, Clone, Default, Debug)]
+pub struct ModelGroup {
+    pub prim_group_start: u16,
+    pub prim_group_len: u16,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -89,14 +96,13 @@ pub fn extract_character_model<'a>(
         .ok_or(DatExtractError::InvalidDatFile)?;
 
     let high_poly_bone_indicies = super::get_high_poly_bone_indicies(parsed_fighter_dat);
-
-    extract_model_from_jobj(root_jobj, Some(high_poly_bone_indicies))
+    extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indicies))
 }
 
 /// returns the model's jobjs and the extracted model
 pub fn extract_model_from_jobj<'a>(
     root_jobj: JOBJ<'a>, 
-    high_poly_bone_indicies: Option<&[u8]> // extracts all if None
+    high_poly_bone_indicies: Option<&HighPolyBoneIndicies> // extracts all if None
 ) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);
@@ -159,12 +165,32 @@ pub fn extract_model_from_jobj<'a>(
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
                 // hack to skip low poly mesh
-                if let Some(indicies) = high_poly_bone_indicies {
-                    if !indicies.contains(&dobj_idx) {
-                        dobj_idx += 1;
-                        continue;
+                let model_group_idx = match high_poly_bone_indicies {
+                    None => 0,
+                    Some(ref high_poly_bone_indicies) => {
+                        let dobj_idx_idx = match high_poly_bone_indicies.indicies.iter()
+                            .copied()
+                            .position(|idx| idx == dobj_idx)
+                        {
+                            Some(idx) => idx as u16,
+                            None => {
+                                dobj_idx += 1;
+                                continue;
+                            }
+                        };
+
+                        let mut model_group_idx = None;
+                        for (i, group) in high_poly_bone_indicies.groups.iter().enumerate() {
+                            let range = (group.0)..(group.0 + group.1);
+                            if range.contains(&dobj_idx_idx) {
+                                model_group_idx = Some(i);
+                            }
+                        }
+
+                        model_group_idx.unwrap() as _
                     }
-                }
+                };
+
                 dobj_idx += 1;
 
                 pgroup_len += 1;
@@ -179,6 +205,7 @@ pub fn extract_model_from_jobj<'a>(
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
 
                 pgroups.push(PrimitiveGroup {
+                    model_group_idx,
                     texture_idx,
                     prim_start,
                     prim_len,
@@ -262,10 +289,6 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
         .find(|root| root.root_string == "map_head")
         .ok_or(DatExtractError::InvalidDatFile)?
         .hsd_struct.clone();
-    //let stage_root = parsed_stage_dat.roots.iter()
-    //    .find(|root| root.root_string == "map_head")
-    //    .ok_or(DatExtractError::InvalidDatFile)?
-    //    .hsd_struct.clone();
     let stage_root = MapHead::new(stage_root);
 
     let ground_params = parsed_stage_dat.roots.iter()
@@ -275,7 +298,6 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
 
     let scale = ground_params.get_f32(0x00);
 
-    //Ok(std::iter::once(extract_model_from_jobj(stage_root.get_model_groups().nth(3).unwrap().root_jobj(), None).unwrap()))
     Ok((
         scale, 
         stage_root.get_model_groups()
@@ -294,7 +316,7 @@ impl Model {
             base_transforms: vec![Mat4::IDENTITY].into(),
             inv_world_transforms: vec![Mat4::IDENTITY].into(),
 
-            primitive_groups: vec![PrimitiveGroup { texture_idx: None, prim_start: 0, prim_len: 1 }].into(),
+            primitive_groups: vec![PrimitiveGroup { texture_idx: None, prim_start: 0, prim_len: 1, model_group_idx: 0 }].into(),
             textures: vec![].into(),
 
             primitives: vec![Primitive::TriangleStrip { vert_start: 0, vert_len: 14 }].into(),
@@ -317,92 +339,6 @@ impl Model {
         }
     }
 }
-
-//    pub fn obj(&self) {
-//        let bones = &*self.bones;
-//
-//        let mut i = 1;
-//        let mut mesh_index = 0;
-//        let mut bone_to_obj = move |bone: &Bone| {
-//            for mesh in bone.meshes.iter() {
-//                // skip low poly mesh
-//                if 36 <= mesh_index && mesh_index <= 67 { 
-//                    mesh_index += 1;
-//                    continue;
-//                } else {
-//                    mesh_index += 1;
-//                }
-//
-//                for p in mesh.primitives.iter() {
-//                    let mut points = Vec::with_capacity(p.vertices.len());
-//
-//                    for v in p.vertices.iter() {
-//                        let t = Vec4::from((v.pos, 1.0));
-//
-//                        let awt = bone.animated_world_transform(&bones);
-//                        let t2 = awt * t;
-//                                         
-//                        let pos = if v.weights.x == 1.0 { // good
-//                            let t = bones[v.bones.x as usize].animated_world_transform(&bones) * t2;
-//                            t.xyz()
-//                        } else if v.weights != Vec4::ZERO {
-//                            let v1 = (bones[v.bones.x as usize].animated_bind_matrix(bones) * v.weights.x) * t;
-//                            let v2 = (bones[v.bones.y as usize].animated_bind_matrix(bones) * v.weights.y) * t;
-//                            let v3 = (bones[v.bones.z as usize].animated_bind_matrix(bones) * v.weights.z) * t;
-//                            let v4 = (bones[v.bones.w as usize].animated_bind_matrix(bones) * v.weights.w) * t;
-//                            (v1 + v2 + v3 + v4).xyz()
-//                        } else {
-//                            t2.xyz()
-//                        };
-//                        
-//                        points.push(pos);
-//                    }
-//
-//                    match p.primitive_type {
-//                        PrimitiveType::Triangles => {
-//                            for t in points.chunks_exact(3) {
-//                                println!("v {} {} {}", t[0].x, t[0].y, t[0].z);
-//                                println!("v {} {} {}", t[1].x, t[1].y, t[1].z);
-//                                println!("v {} {} {}", t[2].x, t[2].y, t[2].z);
-//
-//                                println!("f {} {} {}", i, i+1, i+2);
-//                                i += 3;
-//                            }
-//                        }
-//                        PrimitiveType::TriangleStrip => {
-//                            println!("v {} {} {}", points[0].x, points[0].y, points[0].z);
-//                            println!("v {} {} {}", points[1].x, points[1].y, points[1].z);
-//
-//                            for p in &points[2..] {
-//                                println!("v {} {} {}", p.x, p.y, p.z);
-//
-//                                println!("f {} {} {}", i, i+1, i+2);
-//                                i += 1;
-//                            }
-//                            i += 2;
-//                        }
-//                        PrimitiveType::Quads => {
-//                            for t in points.chunks_exact(4) {
-//                                println!("v {} {} {}", t[0].x, t[0].y, t[0].z);
-//                                println!("v {} {} {}", t[1].x, t[1].y, t[1].z);
-//                                println!("v {} {} {}", t[2].x, t[2].y, t[2].z);
-//                                println!("v {} {} {}", t[3].x, t[3].y, t[3].z);
-//
-//                                println!("f {} {} {} {3}", i, i+1, i+2, i+3);
-//                                i += 4;
-//                            }
-//                        }
-//                        p => panic!("{:?}", p)
-//                    }
-//                }
-//            }
-//        };
-//
-//        for root in self.bone_tree_roots.iter() {
-//            root.inspect_high_poly_bones(&self.bones, &mut bone_to_obj)
-//        }
-//    }
-//}
 
 impl PrimitiveType {
     pub fn from_u8(n: u8) -> Option<Self> {

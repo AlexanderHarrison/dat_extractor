@@ -1,5 +1,5 @@
-use crate::dat::{InternalTextureFormat, HSDStruct, Image, TLUTFormat, 
-    JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data};
+use crate::dat::{decode_anim_data, InternalTextureFormat, HSDStruct, Image, TLUTFormat, Animation, AnimTransform,
+    JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data, TrackType, TrackOrFOBJData, AnimDataFormat};
 
 // Melee/Ef/SBM_EffectTable.cs (SBM_EffectTable)
 #[derive(Clone, Debug)]
@@ -38,6 +38,26 @@ impl<'a> EffectTable<'a> {
         models.into_boxed_slice()
     }
 
+    pub fn models_and_animations(&self) -> Box<[(Model, Option<Animation>)]> {
+        let count = (self.hsd_struct.len() - 0x08) / 0x14;
+        let mut models = Vec::with_capacity(count);
+
+        for i in 0..count {
+            // Melee/Ef/SBM_EffectTable.cs (SBM_EffectModel)
+            let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * i, 0x14);
+            let jobj = JOBJ::new(model_struct.get_reference(0x04));
+            let model = extract_model_from_jobj(jobj, None).unwrap();
+
+            // joint anim
+            let anim = model_struct.try_get_reference(0x08)
+                .and_then(parse_joint_anim);
+            // TODO other animations???/
+            models.push((model, anim));
+        }
+
+        models.into_boxed_slice()
+    }
+
     pub fn model(&self, model_idx: usize) -> Option<Model> {
         let count = (self.hsd_struct.len() - 0x08) / 0x14;
         if model_idx >= count { return None }
@@ -45,6 +65,30 @@ impl<'a> EffectTable<'a> {
         let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
         let jobj = JOBJ::new(model_struct.get_reference(0x04));
         extract_model_from_jobj(jobj, None).ok()
+    }
+
+    pub fn joint_anim(&self, model_idx: usize) -> Option<Animation> {
+        let count = (self.hsd_struct.len() - 0x08) / 0x14;
+        if model_idx >= count { return None }
+
+        let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
+        parse_joint_anim(model_struct.try_get_reference(0x08)?)
+    }
+
+    pub fn mat_anim(&self, model_idx: usize) -> Option<Box<[MaterialAnim]>> {
+        let count = (self.hsd_struct.len() - 0x08) / 0x14;
+        if model_idx >= count { return None }
+
+        let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
+        Some(parse_material_anims(model_struct.try_get_reference(0x0C)?))
+    }
+
+    pub fn shape_anim(&self, model_idx: usize) -> Option<Box<[ShapeAnim]>> {
+        let count = (self.hsd_struct.len() - 0x08) / 0x14;
+        if model_idx >= count { return None }
+
+        let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
+        Some(parse_shape_anims(model_struct.try_get_reference(0x10)?))
     }
 
     pub fn hidden_mat_animation_textures(&self) -> Box<[Image]> {
@@ -96,6 +140,148 @@ impl<'a> EffectTable<'a> {
 
         models.into_boxed_slice()
     }
+}
+
+pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
+    let mut joint_anims = Vec::new();
+    
+    let mut flags = 0;
+    let mut end_frame = 0.0;
+
+    // HSD_AnimJoint
+    for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
+        let aobj = match joint_anim_joint.try_get_reference(0x08) {
+            Some(aobj) => aobj,
+            None => continue,
+        };
+
+        // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
+        // not sure how to handle if this isn't the case. hopefully it's fine
+        let new_flags = aobj.get_u32(0x00);
+        assert!(flags == 0 || flags == new_flags);
+        flags = new_flags;
+        
+        let new_end_frame = aobj.get_f32(0x04);
+        assert!(end_frame == 0.0 || end_frame == new_end_frame);
+        end_frame = new_end_frame;
+
+        let fobj_desc = aobj.get_reference(0x08);
+
+        let mut tracks = Vec::new();
+
+        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
+            let value_flag = fobj_desc.get_u8(0x0D);
+            let tan_flag = fobj_desc.get_u8(0x0E);
+            let value_scale = (1 << (value_flag & 0x1F)) as f32;
+            let tan_scale = (1 << (tan_flag & 0x1F)) as f32;
+            let value_format = AnimDataFormat::from_u8(value_flag & 0xE0);
+            let tan_format = AnimDataFormat::from_u8(tan_flag & 0xE0);
+
+            let start_frame = fobj_desc.get_f32(0x08);
+
+            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+            //println!("track_type : {:?}", track_type);
+
+            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
+                //println!("skipped track type"); 
+                continue;
+            }
+
+            //// no friggin clue bud - might be useful in your sorry state
+            //let track = if track_type == TrackType::PTCL {
+            //    // Tools/FOBJ_Player.cs (FOBJ_Player)
+            //    let buffer = fobj_desc.get_buffer(0x10);
+            //    let ptcl_code = ((buffer[3] as u32) << 16) | ((buffer[2] as u32) << 8) | (buffer[1] as u32);
+            //    let ptcl_bank = ptcl_code & 0b111111; 
+            //    let ptcl_id = (ptcl_code >> 6) & 0b111111111111111111;
+
+            //    // Tools/FOBJ_Player.cs (ToFobjDesc)
+            //    let ptcl = (ptcl_id << 6) | (ptcl_bank & 0b111111);
+            //    let data = [0, ptcl as u8, (ptcl >> 8) as u8, (ptcl >> 16) as u8, 0, 0, 0, 0];
+
+            //    decode_anim_data(TrackOrFOBJData {
+            //        track_type,
+            //        data: &data,
+            //        value_scale,
+            //        tan_scale,
+            //        value_format,
+            //        tan_format,
+            //    })
+            //} else {
+                let track = decode_anim_data(TrackOrFOBJData {
+                    track_type,
+                    data: fobj_desc.get_buffer(0x10),
+                    value_scale,
+                    tan_scale,
+                    value_format,
+                    tan_format,
+                    start_frame,
+                });
+            //};
+            tracks.push(track);
+        }
+
+        joint_anims.push(AnimTransform {
+            tracks: tracks.into_boxed_slice(),
+            bone_index: i,
+        })
+    }
+
+    if joint_anims.len() == 0 {
+        None
+    } else {
+        Some(Animation {
+            name: String::new().into_boxed_str(),
+            transforms: joint_anims.into_boxed_slice(),
+            end_frame,
+            flags,
+        })
+    }
+}
+
+// TODO
+pub struct ShapeAnim {}
+fn parse_shape_anims(_shape_anim_joint: HSDStruct<'_>) -> Box<[ShapeAnim]> {
+    todo!()
+    //let mut shape_anims = Vec::new();
+
+    //for shape_anim_joint in shape_anim_joint.iter_joint_tree(0x00, 0x04) {
+    //    // HSD_ShapeAnim
+    //    let shape_anim = shape_anim_joint.get_reference(0x08);
+
+    //    for shape_anim in shape_anim.iter_joint_list(0x00) {
+    //        let aobj_desc = shape_anim.get_reference(0x04);  
+
+    //        for aobj_desc in aobj_desc.iter_joint_list(0x00) {
+    //            todo!();
+    //        }
+    //    }
+    //}
+
+    //shape_anims.into_boxed_slice()
+}
+
+// TODO
+pub struct MaterialAnim {}
+fn parse_material_anims(_mat_anim_joint: HSDStruct<'_>) -> Box<[MaterialAnim]> {
+    todo!()
+    //let mut material_anims = Vec::new();
+
+    //for mat_anim_joint in mat_anim_joint.iter_joint_tree(0x00, 0x04) {
+    //    // HSD_MatAnim
+    //    let mat_anim = mat_anim_joint.get_reference(0x08);
+
+    //    for mat_anim in mat_anim.iter_joint_list(0x00) {
+    //        println!("mat anim");
+
+    //        let aobj = mat_anim.try_get_reference(0x04);
+    //        dbg!(aobj);
+    //        let tex_anim = mat_anim.try_get_reference(0x08);  
+    //        dbg!(tex_anim);
+    //    }
+    //}
+
+    //material_anims.into_boxed_slice()
 }
 
 pub fn extract_anim_joint_models(models: &mut Vec<Model>, anim_joint: HSDStruct) {

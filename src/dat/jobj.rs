@@ -227,7 +227,7 @@ impl<'a> POBJ<'a> {
         &'b self, 
         builder: &mut MeshBuilder,
         bone_jobjs: &[JOBJ<'a>],
-    ) -> u16 {
+    ) -> u8 {
         let attributes = self.get_attributes();
 
         let buffer = self.hsd_struct.get_buffer(0x10);
