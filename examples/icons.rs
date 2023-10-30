@@ -12,7 +12,7 @@ fn main() {
             t,
             24,
             24,
-            lodepng::ColorType::RGBA, // TODO
+            lodepng::ColorType::BGRA, // TODO
             8
         ).unwrap();
         im += 1;

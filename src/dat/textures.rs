@@ -73,32 +73,24 @@ pub fn try_decode_texture<'a>(
     let mobj = dobj.get_mobj()?;
     let tobj = mobj.get_tobj()?;
 
-    let im_count = tobj.siblings().filter(|t| t.image_buffer().is_some()).count();
-    if im_count > 1 {
-        println!("{} unused images in tobj", im_count)
-    }
+    // There are other tobjs present that are currently unused.
+    // They contain bump maps, lighting maps, etc.
 
-    let mut ret = None;
-    for tobj in tobj.siblings() {
-        let data_ptr = match tobj.image_buffer() {
-            Some(b) => b.as_ptr(),
-            None => continue
-        };
+    let render_mode = mobj.flags();
+    if render_mode & (1 << 24) != 0 { println!("unused z offset") }
+    let data_ptr = tobj.image_buffer().unwrap().as_ptr();
 
-        use std::collections::hash_map::Entry;
-        match cache.entry(data_ptr) {
-            Entry::Occupied(entry) => ret = Some(*entry.get()),
-            Entry::Vacant(entry) => {
-                let texture = tobj.texture().unwrap();
-                let texture_idx = textures.len() as _;
-                textures.push(texture);
-                entry.insert(texture_idx);
-                ret = Some(texture_idx);
-            }
+    use std::collections::hash_map::Entry;
+    match cache.entry(data_ptr) {
+        Entry::Occupied(entry) => Some(*entry.get()),
+        Entry::Vacant(entry) => {
+            let texture = tobj.texture().unwrap();
+            let texture_idx = textures.len() as _;
+            textures.push(texture);
+            entry.insert(texture_idx);
+            Some(texture_idx)
         }
     }
-
-    ret
 }
 
 impl<'a> TOBJ<'a> {
@@ -121,6 +113,15 @@ impl<'a> TOBJ<'a> {
     // image buffers are shared between multiple tobjs, need to expose this to deduplicate
     pub fn image_buffer(&self) -> Option<&'a [u8]> {
         self.hsd_struct.try_get_reference(0x4C).map(|t| t.get_buffer(0x00))
+    }
+
+    pub fn flags(&self) -> u32 {
+        self.hsd_struct.get_u32(0x40)
+    }
+
+    pub fn format(&self) -> Option<InternalTextureFormat> {
+        self.hsd_struct.try_get_reference(0x4C)
+            .map(|hsd_image| InternalTextureFormat::new(hsd_image.get_i32(0x08) as u32).unwrap())
     }
 
     // HSDScene.cs:194 (RefreshTextures)
@@ -223,6 +224,10 @@ impl<'a> MOBJ<'a> {
         Self {
             hsd_struct
         }
+    }
+
+    pub fn flags(&self) -> u32 {
+        self.hsd_struct.get_u32(0x04)
     }
 
     // might never fail, but return option to be sure
@@ -359,10 +364,33 @@ impl InternalTextureFormat {
 
     pub fn is_paletted(self) -> bool {
         match self {
-            InternalTextureFormat::CI4 => true,
-            InternalTextureFormat::CI8 => true,
+            InternalTextureFormat::I4     => false,
+            InternalTextureFormat::I8     => false,
+            InternalTextureFormat::IA4    => false,
+            InternalTextureFormat::IA8    => false,
+            InternalTextureFormat::RGB565 => false,
+            InternalTextureFormat::RGB5A3 => false,
+            InternalTextureFormat::RGBA8  => false,
+            InternalTextureFormat::CI4    => true,
+            InternalTextureFormat::CI8    => true,
             InternalTextureFormat::CI14X2 => true,
-            _ => false,
+            InternalTextureFormat::CMP    => false,
+        }
+    }
+
+    pub fn has_colour(self) -> bool {
+        match self {
+            InternalTextureFormat::I4     => false,
+            InternalTextureFormat::I8     => false,
+            InternalTextureFormat::IA4    => false,
+            InternalTextureFormat::IA8    => false,
+            InternalTextureFormat::RGB565 => true,
+            InternalTextureFormat::RGB5A3 => true,
+            InternalTextureFormat::RGBA8  => true,
+            InternalTextureFormat::CI4    => true,
+            InternalTextureFormat::CI8    => true,
+            InternalTextureFormat::CI14X2 => true,
+            InternalTextureFormat::CMP    => true,
         }
     }
 }
@@ -521,7 +549,6 @@ fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut 
                     let i = ((pixel & 0x0F) * 255 / 15) & 0xff;
                     let a = (((pixel >> 4) * 255) / 15) & 0xff;
 
-                    //rgba_buffer[y1 * width + x1] = (i << 0) | (i << 8) | (i << 16) | (a << 24);
                     rgba_buffer[y1 * width + x1] = (i << 0) | (i << 8) | (i << 16) | (a << 24);
                 }
             }
@@ -659,7 +686,7 @@ fn decode_compressed_image(data: &[u8], width: usize, height: usize, rgba_buffer
                 let mut r = (2 * get_r(c[0]) + get_r(c[1])) / 3;
                 let mut g = (2 * get_g(c[0]) + get_g(c[1])) / 3;
                 let mut b = (2 * get_b(c[0]) + get_b(c[1])) / 3;
-
+                
                 c[2] = (0xFF << 24) | ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
 
                 r = (2 * get_r(c[1]) + get_r(c[0])) / 3;

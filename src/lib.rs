@@ -13,7 +13,7 @@ pub fn parse_string(bytes: &[u8]) -> Option<&str> {
     std::str::from_utf8(str_bytes).ok()
 }
 
-pub fn open_iso(path: &str) -> Result<ISODatFiles, ISOParseError> {
+pub fn open_iso<P: AsRef<std::path::Path>>(path: P) -> Result<ISODatFiles, ISOParseError> {
     let file = std::fs::File::open(path).map_err(|_| ISOParseError::FileNotFound)?;
     ISODatFiles::new(file)
 }
@@ -442,7 +442,7 @@ pub const fn character_stock_icon_index(character: CharacterColour) -> u16 {
         Peach         (PeachColour         ::Yellow   ) => 038,
         Peach         (PeachColour         ::White    ) => 064,
         Peach         (PeachColour         ::Blue     ) => 090,
-        Peach         (PeachColour         ::Green    ) => 121,
+        Peach         (PeachColour         ::Green    ) => 120,
         Pikachu       (PikachuColour       ::Neutral  ) => 013,
         Pikachu       (PikachuColour       ::Red      ) => 039,
         Pikachu       (PikachuColour       ::Blue     ) => 065,

@@ -39,7 +39,7 @@ pub struct FighterDataRoot<'a> {
 pub struct Article {
     pub model: Option<Model>,
     pub scale: f32,
-    pub animations: Option<Box<[Animation]>>,
+    pub animations: Option<Box<[Option<Animation>]>>, // TODO unused
 }
 
 impl<'a> FighterDataRoot<'a> {
@@ -96,13 +96,26 @@ impl<'a> FighterDataRoot<'a> {
                     let count = item_states.len() / 0x10;
                     let mut anim_vec = Vec::with_capacity(count);
 
+                    let mut n = 0;
                     for i in 0..count {
                         // Melee/Pl/SBM_ArticlePointer.cs (SBM_ItemState)
                         let item_state = item_states.get_embedded_struct(i * 0x10, 0x10);
 
-                        let joint_anim_joint = item_state.get_reference(0x00);
-                        let anim = parse_joint_anim(joint_anim_joint).unwrap();
-                        anim_vec.push(anim);
+                        if let Some(_) = item_state.try_get_reference(0x04) {
+                            println!("unused mat anim");
+                        }
+
+                        if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
+                            let anim = parse_joint_anim(joint_anim_joint).unwrap();
+                            anim_vec.push(Some(anim));
+                        } else {
+                            anim_vec.push(None);
+                            n += 1;
+                        }
+                    }
+
+                    if n != 0 {
+                        println!("{} unused article states out of {}", n, count);
                     }
 
                     animations = Some(anim_vec.into_boxed_slice());

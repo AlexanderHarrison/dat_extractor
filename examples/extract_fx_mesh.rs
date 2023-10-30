@@ -3,9 +3,9 @@ use dat_tools::isoparser::ISODatFiles;
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let mesh_dat = files.read_file("PlMsNr.dat").unwrap();
+    let mesh_dat = files.read_file("PlCaNr.dat").unwrap();
     let mesh_dat = dat_tools::dat::HSDRawFile::open(mesh_dat.stream());
-    let fighter_dat = files.read_file("PlMs.dat").unwrap();
+    let fighter_dat = files.read_file("PlCa.dat").unwrap();
     let fighter_dat = dat_tools::dat::HSDRawFile::open(fighter_dat.stream());
     let scene = dat_tools::dat::extract_character_model(&fighter_dat, &mesh_dat).unwrap();
 

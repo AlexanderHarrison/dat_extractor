@@ -54,6 +54,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "decancer"
+version = "1.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "080b09f6adad25c23d8c47c54e52e59b0dc09d079c4b23e0f147dac440359d0d"
+
+[[package]]
 name = "fallible_collections"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -150,6 +156,9 @@ dependencies = [
 [[package]]
 name = "slp_parser"
 version = "0.1.0"
+dependencies = [
+ "decancer",
+]
 
 [[package]]
 name = "version_check"
