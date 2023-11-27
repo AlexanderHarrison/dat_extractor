@@ -1,8 +1,6 @@
 pub mod dat;
 pub mod isoparser;
 
-// TODO - sibling, children, tree, functions
-
 use dat::FighterData;
 use isoparser::{ISOParseError, ISODatFiles};
 use slp_parser::{Stage, Character, CharacterColour, character_colours::*};
@@ -82,6 +80,62 @@ pub fn extract_stock_icons(files: &mut ISODatFiles) -> Option<Box<[[u32; 24*24]]
     }
 
     Some(icons.into_boxed_slice())
+}
+
+/// first 10 are numbers 0 to 9 (32 x 36).
+/// 11 and 12 are percent and HP icons (32 x 24)
+pub fn extract_percent_icons(files: &mut ISODatFiles) -> Option<Box<[dat::Image]>> {
+    let mut icons: Vec<dat::Image> = Vec::new();
+    let mut cache = std::collections::HashSet::new();
+
+    let dat = files.read_file("IfAll.dat").ok()?;
+    let hsd_if_dat = dat::HSDRawFile::new(&dat);
+
+    let root = hsd_if_dat.roots.iter()
+        .find(|r| r.root_string == "DmgNum_scene_models")
+        .unwrap().hsd_struct.clone();
+
+    let jobj_desc = root.get_reference(0x00);
+    //let jobj = dat::JOBJ::new(jobj_desc.get_reference(0x00));
+    //let mut model = dat::extract_model_from_jobj(jobj, None).ok()?;
+    let material_anims = jobj_desc.get_reference(0x08);
+    let anim_2 = material_anims.get_reference(0x08);
+    dat::extract_mat_anim_joint_textures(&mut cache, &mut icons, anim_2);
+
+    //let mut temp = model.bones.clone().to_vec();
+    //temp.truncate(2);
+    //temp[0].child_len = 1;
+    //model.bones = temp.into_boxed_slice();
+    //model.bones = vec![dat::Bone {
+    //    parent: None,
+    //    child_start: 0,
+    //    child_len: 0,
+    //    pgroup_start: 8, 
+    //    pgroup_len: 2,
+    //}].into();
+    //model.bone_child_idx = vec![0].into();
+    //model.base_transforms = vec![model.base_transforms[0]].into();
+    //model.inv_world_transforms = vec![model.inv_world_transforms[0]].into();
+
+    //dbg!(model.bones.len());
+    //dbg!(model.primitive_groups.len());
+    //dbg!(model.primitives.len());
+    //dbg!(model.vertices.len());
+    //dbg!(&model.bones);
+    
+    //let mut animations = Vec::new();
+    //let anim_joint_array = jobj_desc.get_reference(0x04);
+    //let mut offset = 0x00;
+    //loop {
+    //    let anim_joint_ptr = anim_joint_array.get_u32(offset);
+    //    if anim_joint_ptr == 0 { break }
+    //    let anim_joint = anim_joint_array.get_reference(offset);
+
+    //    animations.push(dat::parse_joint_anim(anim_joint).unwrap());
+    //    offset += 4;
+    //}
+    //Some((model, animations.into_boxed_slice(), icons))
+    Some(icons.into())
 }
 
 pub const fn stage_filename(stage: Stage) -> &'static str {

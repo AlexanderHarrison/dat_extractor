@@ -32,9 +32,7 @@ impl ISODatFiles {
         iso.seek(SeekFrom::Start(fst_offset + 0x8)).map_err(|_| ISOParseError::InvalidISO)?;
         let entry_count = read_u32(iso)? as u64;
         let string_table_offset = fst_offset + entry_count * 0xC;
-
         let entry_start_offset = fst_offset + 0xC;
-
         let mut iso_dat_files = HashMap::new();
 
         read_files(iso, entry_start_offset, string_table_offset, string_table_offset, &mut iso_dat_files)?;

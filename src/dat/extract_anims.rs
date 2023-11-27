@@ -1,4 +1,5 @@
-use crate::dat::{Vertex, Model, FighterAction, HSDRawFile, Stream, HSDStruct, DatFile, DatExtractError, Primitive};
+use crate::dat::*;
+
 use glam::f32::{Quat, Mat4, Vec3, Vec4};
 use glam::Vec4Swizzles;
 
@@ -227,6 +228,119 @@ pub enum InterpolationType {
     Step
 }
 
+/// HSD_AnimJoint -> Animation
+pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
+    let mut joint_anims: Vec<AnimTransform> = Vec::new();
+    
+    let mut flags = 0;
+    let mut end_frame = 0.0;
+
+    // HSD_AnimJoint
+    for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
+        let aobj = match joint_anim_joint.try_get_reference(0x08) {
+            Some(aobj) => aobj,
+            None => continue,
+        };
+
+        // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
+        // not sure how to handle if this isn't the case. hopefully it's fine
+        let new_flags = aobj.get_u32(0x00);
+        assert!(flags == 0 || flags == new_flags);
+        flags = new_flags;
+        
+        let new_end_frame = aobj.get_f32(0x04);
+        assert!(end_frame == 0.0 || end_frame == new_end_frame);
+        end_frame = new_end_frame;
+
+        let fobj_desc = aobj.get_reference(0x08);
+
+        let mut tracks = Vec::new();
+
+        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
+            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
+                continue;
+            }
+
+            let track = decode_anim_data(fobj_desc_data(&fobj_desc));
+            tracks.push(track);
+        }
+
+        joint_anims.push(AnimTransform {
+            tracks: tracks.into_boxed_slice(),
+            bone_index: i,
+        });
+    }
+
+    if joint_anims.len() == 0 {
+        None
+    } else {
+        Some(Animation {
+            name: String::new().into_boxed_str(),
+            transforms: joint_anims.into_boxed_slice(),
+            end_frame,
+            flags,
+        })
+    }
+}
+
+// TODO
+/// HSD_MatAnimJoint -> Animation
+//pub fn parse_material_anim(material_anim_joint: HSDStruct<'_>) -> Option<Animation> {
+//    let mut joint_anims: Vec<AnimTransform> = Vec::new();
+//    
+//    let mut flags = 0;
+//    let mut end_frame = 0.0;
+//
+//    // HSD_AnimJoint
+//    for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
+//        let aobj = match joint_anim_joint.try_get_reference(0x08) {
+//            Some(aobj) => aobj,
+//            None => continue,
+//        };
+//
+//        // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
+//        // not sure how to handle if this isn't the case. hopefully it's fine
+//        let new_flags = aobj.get_u32(0x00);
+//        assert!(flags == 0 || flags == new_flags);
+//        flags = new_flags;
+//        
+//        let new_end_frame = aobj.get_f32(0x04);
+//        assert!(end_frame == 0.0 || end_frame == new_end_frame);
+//        end_frame = new_end_frame;
+//
+//        let fobj_desc = aobj.get_reference(0x08);
+//
+//        let mut tracks = Vec::new();
+//
+//        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
+//            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+//            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
+//                continue;
+//            }
+//
+//            let track = decode_anim_data(fobj_desc_data(&fobj_desc));
+//            tracks.push(track);
+//        }
+//
+//        joint_anims.push(AnimTransform {
+//            tracks: tracks.into_boxed_slice(),
+//            bone_index: i,
+//        });
+//    }
+//
+//    if joint_anims.len() == 0 {
+//        None
+//    } else {
+//        Some(Animation {
+//            name: String::new().into_boxed_str(),
+//            transforms: joint_anims.into_boxed_slice(),
+//            end_frame,
+//            flags,
+//        })
+//    }
+//}
+
 /// Pass in the raw data of the animations file - Pl*AJ.dat
 /// That is necessary (for now).
 pub fn extract_anims(
@@ -420,7 +534,30 @@ pub struct TrackOrFOBJData<'a> {
     pub start_frame: f32,
 }
 
-fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a> {
+pub fn fobj_desc_data<'a>(fobj_desc: &HSDStruct<'a>) -> TrackOrFOBJData<'a> {
+    let value_flag = fobj_desc.get_u8(0x0D);
+    let tan_flag = fobj_desc.get_u8(0x0E);
+    let value_scale = (1 << (value_flag & 0x1F)) as f32;
+    let tan_scale = (1 << (tan_flag & 0x1F)) as f32;
+    let value_format = AnimDataFormat::from_u8(value_flag & 0xE0);
+    let tan_format = AnimDataFormat::from_u8(tan_flag & 0xE0);
+
+    let start_frame = fobj_desc.get_f32(0x08);
+
+    let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+
+    TrackOrFOBJData {
+        track_type,
+        data: fobj_desc.get_buffer(0x10),
+        value_scale,
+        tan_scale,
+        value_format,
+        tan_format,
+        start_frame,
+    }
+}
+
+pub fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a> {
     TrackOrFOBJData {
         track_type: track.track_type(),
         data: track.hsd_struct.get_reference(0x08).data,

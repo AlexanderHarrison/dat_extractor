@@ -34,8 +34,9 @@ impl<'a> DOBJ<'a> {
         }
     }
 
-    pub fn get_pobj(&self) -> POBJ<'a> {
-        POBJ::new(self.hsd_struct.get_reference(0x0C))
+    pub fn get_pobj(&self) -> Option<POBJ<'a>> {
+        self.hsd_struct.try_get_reference(0x0C)
+            .map(POBJ::new)
     }
 
     pub fn get_mobj(&self) -> Option<MOBJ<'a>> {
@@ -227,7 +228,7 @@ impl<'a> POBJ<'a> {
         &'b self, 
         builder: &mut MeshBuilder,
         bone_jobjs: &[JOBJ<'a>],
-    ) -> u8 {
+    ) -> u16 {
         let attributes = self.get_attributes();
 
         let buffer = self.hsd_struct.get_buffer(0x10);
@@ -267,7 +268,9 @@ impl<'a> POBJ<'a> {
                                 colour = read_direct_colour(&reader, attr.comp_type);
                                 continue;
                             } else if attr.name == AttributeName::GX_VA_CLR1 {
-                                todo!();
+                                eprintln!("unused GX_VA_CLR1 attribute");
+                                read_direct_colour(&reader, attr.comp_type);
+                                continue;
                             } else { 
                                 reader.read_byte() as usize
                             }

@@ -1,5 +1,6 @@
-use crate::dat::{decode_anim_data, InternalTextureFormat, HSDStruct, Image, TLUTFormat, Animation, AnimTransform,
-    JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data, TrackType, TrackOrFOBJData, AnimDataFormat};
+use crate::dat::{InternalTextureFormat, HSDStruct, Image, TLUTFormat, Animation,
+    JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data,
+    parse_joint_anim};
 
 // Melee/Ef/SBM_EffectTable.cs (SBM_EffectTable)
 #[derive(Clone, Debug)]
@@ -105,7 +106,11 @@ impl<'a> EffectTable<'a> {
                 None => continue,
             };
 
-            extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
+            extract_mat_anim_joint_textures(
+                &mut std::collections::HashSet::new(),
+                &mut images, 
+                mat_anim_joint
+            );
         }
 
         images.into_boxed_slice()
@@ -139,103 +144,6 @@ impl<'a> EffectTable<'a> {
         }
 
         models.into_boxed_slice()
-    }
-}
-
-pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
-    let mut joint_anims = Vec::new();
-    
-    let mut flags = 0;
-    let mut end_frame = 0.0;
-
-    // HSD_AnimJoint
-    for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
-        let aobj = match joint_anim_joint.try_get_reference(0x08) {
-            Some(aobj) => aobj,
-            None => continue,
-        };
-
-        // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
-        // not sure how to handle if this isn't the case. hopefully it's fine
-        let new_flags = aobj.get_u32(0x00);
-        assert!(flags == 0 || flags == new_flags);
-        flags = new_flags;
-        
-        let new_end_frame = aobj.get_f32(0x04);
-        assert!(end_frame == 0.0 || end_frame == new_end_frame);
-        end_frame = new_end_frame;
-
-        let fobj_desc = aobj.get_reference(0x08);
-
-        let mut tracks = Vec::new();
-
-        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
-            let value_flag = fobj_desc.get_u8(0x0D);
-            let tan_flag = fobj_desc.get_u8(0x0E);
-            let value_scale = (1 << (value_flag & 0x1F)) as f32;
-            let tan_scale = (1 << (tan_flag & 0x1F)) as f32;
-            let value_format = AnimDataFormat::from_u8(value_flag & 0xE0);
-            let tan_format = AnimDataFormat::from_u8(tan_flag & 0xE0);
-
-            let start_frame = fobj_desc.get_f32(0x08);
-
-            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
-            //println!("track_type : {:?}", track_type);
-
-            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
-                //println!("skipped track type"); 
-                continue;
-            }
-
-            //// no friggin clue bud - might be useful in your sorry state
-            //let track = if track_type == TrackType::PTCL {
-            //    // Tools/FOBJ_Player.cs (FOBJ_Player)
-            //    let buffer = fobj_desc.get_buffer(0x10);
-            //    let ptcl_code = ((buffer[3] as u32) << 16) | ((buffer[2] as u32) << 8) | (buffer[1] as u32);
-            //    let ptcl_bank = ptcl_code & 0b111111; 
-            //    let ptcl_id = (ptcl_code >> 6) & 0b111111111111111111;
-
-            //    // Tools/FOBJ_Player.cs (ToFobjDesc)
-            //    let ptcl = (ptcl_id << 6) | (ptcl_bank & 0b111111);
-            //    let data = [0, ptcl as u8, (ptcl >> 8) as u8, (ptcl >> 16) as u8, 0, 0, 0, 0];
-
-            //    decode_anim_data(TrackOrFOBJData {
-            //        track_type,
-            //        data: &data,
-            //        value_scale,
-            //        tan_scale,
-            //        value_format,
-            //        tan_format,
-            //    })
-            //} else {
-                let track = decode_anim_data(TrackOrFOBJData {
-                    track_type,
-                    data: fobj_desc.get_buffer(0x10),
-                    value_scale,
-                    tan_scale,
-                    value_format,
-                    tan_format,
-                    start_frame,
-                });
-            //};
-            tracks.push(track);
-        }
-
-        joint_anims.push(AnimTransform {
-            tracks: tracks.into_boxed_slice(),
-            bone_index: i,
-        })
-    }
-
-    if joint_anims.len() == 0 {
-        None
-    } else {
-        Some(Animation {
-            name: String::new().into_boxed_str(),
-            transforms: joint_anims.into_boxed_slice(),
-            end_frame,
-            flags,
-        })
     }
 }
 
@@ -359,47 +267,38 @@ pub fn extract_mat_anim_joint_models(models: &mut Vec<Model>, mat_anim_joint: HS
     }
 }
 
-pub fn extract_mat_anim_joint_textures(textures: &mut Vec<crate::dat::Image>, mat_anim_joint: HSDStruct) {
-    if let Some(mut mat_anim) = mat_anim_joint.try_get_reference(0x08) {
-        loop {
-            if let Some(mut tex_anim) = mat_anim.try_get_reference(0x08) {
-                loop {
+pub fn extract_mat_anim_joint_textures(
+    cache: &mut std::collections::HashSet<*const u8>, 
+    textures: &mut Vec<crate::dat::Image>, 
+    mat_anim_joint: HSDStruct
+) {
+    for mat_anim_joint in mat_anim_joint.iter_joint_tree(0x00, 0x04) {
+        if let Some(mat_anim) = mat_anim_joint.try_get_reference(0x08) {
+            for mat_anim in mat_anim.iter_joint_list(0x00) {
+                let tex_anim = mat_anim.get_reference(0x08);
+                for tex_anim in tex_anim.iter_joint_list(0x00) {
                     if let Some(tex_buffers) = tex_anim.try_get_reference(0x0c) {
                         if let Some(tlut_buffers) = tex_anim.try_get_reference(0x10) {
                             for offset in (0..tex_buffers.len()).step_by(4) {
-                                let tlut = tlut_buffers.try_get_reference(offset)
-                                    .map(crate::dat::TLUT::new);
                                 let image = tex_buffers.get_reference(offset);
-                                textures.push(crate::dat::decode_image(image, tlut));
+                                if cache.insert(image.get_buffer(0x00).as_ptr()) {
+                                    let tlut = tlut_buffers.try_get_reference(offset)
+                                        .map(crate::dat::TLUT::new);
+                                    textures.push(crate::dat::decode_image(image, tlut));
+                                }
                             }
                         } else {
                             for offset in (0..tex_buffers.len()).step_by(4) {
                                 let image = tex_buffers.get_reference(offset);
-                                textures.push(crate::dat::decode_image(image, None));
+                                if cache.insert(image.get_buffer(0x00).as_ptr()) {
+                                    textures.push(crate::dat::decode_image(image, None));
+                                }
                             }
                         }
                     }
-
-                    match tex_anim.try_get_reference(0x00) {
-                        Some(new_tex_anim) => tex_anim = new_tex_anim,
-                        None => break,
-                    }
                 }
             }
-
-            match mat_anim.try_get_reference(0x00) {
-                Some(new_mat_anim) => mat_anim = new_mat_anim,
-                None => break,
-            }
         }
-    }
-
-    if let Some(child) = mat_anim_joint.try_get_reference(0x00) {
-        extract_mat_anim_joint_textures(textures, child);
-    }
-
-    if let Some(sibling) = mat_anim_joint.try_get_reference(0x04) {
-        extract_mat_anim_joint_textures(textures, sibling);
     }
 }
 

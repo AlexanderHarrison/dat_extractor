@@ -19,7 +19,7 @@ pub struct PrimitiveGroup {
     pub texture_idx: Option<u16>,
 
     pub prim_start: u16,
-    pub prim_len: u8,
+    pub prim_len: u16,
     pub model_group_idx: u8,
 }
 
@@ -99,7 +99,6 @@ pub fn extract_character_model<'a>(
     extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indicies))
 }
 
-/// returns the model's jobjs and the extracted model
 pub fn extract_model_from_jobj<'a>(
     root_jobj: JOBJ<'a>, 
     high_poly_bone_indicies: Option<&HighPolyBoneIndicies> // extracts all if None
@@ -198,8 +197,10 @@ pub fn extract_model_from_jobj<'a>(
                 let prim_start = builder.primitives.len() as _;
                 let mut prim_len = 0;
 
-                for pobj in dobj.get_pobj().siblings() {
-                    prim_len += pobj.decode_primitives(&mut builder, &bone_jobjs);
+                if let Some(pobj) = dobj.get_pobj() {
+                    for pobj in pobj.siblings() {
+                        prim_len += pobj.decode_primitives(&mut builder, &bone_jobjs);
+                    }
                 }
 
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
