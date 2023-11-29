@@ -313,7 +313,7 @@ pub fn decode_palette(count: usize, format: TLUTFormat, data: &[u8]) -> Box<[u32
             }
         }
 
-        palette.push((r << 0) | (g << 8) | (b << 16) | (a << 24));
+        palette.push(convert((r << 0) | (g << 8) | (b << 16) | (a << 24)));
     }
 
     palette.into_boxed_slice()
@@ -413,7 +413,7 @@ fn decode_rgba8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mu
                         let a = (pixel >> 8) & 0xff;
                         let b = (pixel >> 0) & 0xff;
                         let (s1, s2) = ([(16, 24), (8, 0)])[k];
-                        rgba_buffer[x1 + (y1 * width)] |= (a << s1) | (b << s2);
+                        rgba_buffer[x1 + (y1 * width)] |= convert((a << s1) | (b << s2));
                     }
                 }
             }
@@ -437,7 +437,7 @@ fn decode_rgb565_image(data: &[u8], width: usize, height: usize, rgba_buffer: &m
                     let b = (((pixel >> 11) & 0x1f) << 3) & 0xff;
                     let g = (((pixel >> 5) & 0x3f) << 2) & 0xff;
                     let r = (((pixel >> 0) & 0x1f) << 3) & 0xff;
-                    rgba_buffer[y1 * width + x1] = (r << 0) | (g << 8) | (b << 16) | (255 << 24);
+                    rgba_buffer[y1 * width + x1] = convert((r << 0) | (g << 8) | (b << 16) | (255 << 24));
                 }
             }
         }
@@ -471,7 +471,7 @@ fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize, rgba_buffer: &m
                         r = (((pixel >> 0) & 0x0F) * 255) / 15;
                     }
 
-                    rgba_buffer[y1 * width + x1] = (r << 0) | (g << 8) | (b << 16) | (a << 24);
+                    rgba_buffer[y1 * width + x1] = convert((r << 0) | (g << 8) | (b << 16) | (a << 24));
                 }
             }
         }
@@ -497,11 +497,11 @@ fn decode_i4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [
 
                     let i = (pixel >> 4) * 255 / 15;
                     let idx = y1 * width + x1;
-                    rgba_buffer[idx] = i | (i << 8) | (i << 16) | (i << 24);
+                    rgba_buffer[idx] = convert(i | (i << 8) | (i << 16) | (i << 24));
 
                     let i = (pixel & 0x0F) * 255 / 15;
                     if idx + 1 < rgba_buffer.len() {
-                        rgba_buffer[idx + 1] = i | (i << 8) | (i << 16) | (i << 24);
+                        rgba_buffer[idx + 1] = convert(i | (i << 8) | (i << 16) | (i << 24));
                     } 
                 }
             }
@@ -524,7 +524,7 @@ fn decode_i8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [
                         continue;
                     }
 
-                    rgba_buffer[y1 * width + x1] = (pixel << 0) | (pixel << 8) | (pixel << 16) | (pixel << 24);
+                    rgba_buffer[y1 * width + x1] = convert((pixel << 0) | (pixel << 8) | (pixel << 16) | (pixel << 24));
                 }
             }
         }
@@ -549,7 +549,7 @@ fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut 
                     let i = ((pixel & 0x0F) * 255 / 15) & 0xff;
                     let a = (((pixel >> 4) * 255) / 15) & 0xff;
 
-                    rgba_buffer[y1 * width + x1] = (i << 0) | (i << 8) | (i << 16) | (a << 24);
+                    rgba_buffer[y1 * width + x1] = convert((i << 0) | (i << 8) | (i << 16) | (a << 24));
                 }
             }
         }
@@ -574,7 +574,7 @@ fn decode_ia8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut 
                     let a = pixel >> 8;
                     let i = pixel & 0xff;
 
-                    rgba_buffer[y1 * width + x1] = (i << 0) | (i << 8) | (i << 16) | (a << 24);
+                    rgba_buffer[y1 * width + x1] = convert((i << 0) | (i << 8) | (i << 16) | (a << 24));
                 }
             }
         }
@@ -715,9 +715,16 @@ fn decode_compressed_image(data: &[u8], width: usize, height: usize, rgba_buffer
                 0xFF
             };
 
-            rgba_buffer[i] = (raw & 0x00FFFFFF) | (alpha << 24);
+            rgba_buffer[i] = convert((raw & 0x00FFFFFF) | (alpha << 24));
+
             i += 1;
         }
     }
 }
 
+
+fn convert(n: u32) -> u32 {
+      (n & 0xff00ff00)
+    | ((n & 0x00ff0000) >> 16)
+    | ((n & 0x000000ff) << 16)
+}
