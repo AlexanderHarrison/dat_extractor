@@ -341,6 +341,10 @@ impl<'a> POBJ<'a> {
                     weights: weights.into(),
                     colour: colour.into(),
                 };
+                
+                //let len = normal[0].powi(2) + normal[1].powi(2) + normal[2].powi(2);
+                //println!("{:?}", len);
+                //assert!(0.99 < len && len < 1.01);
                 builder.vertices.push(vertex);
             }
 
