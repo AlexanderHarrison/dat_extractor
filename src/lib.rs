@@ -208,7 +208,7 @@ pub const fn character_effect_filename(character: Character) -> Option<&'static 
     Some(match character {
         Character::Fox   => "EfFxData.dat",
         Character::Marth => "PlMsData.dat",
-        Character::Peach => "PlMsData.dat",
+        Character::Peach => "PlPeData.dat",
         _ => panic!("probably need to implement more characters in dat_tools::character_effect_filename") 
     })
 }

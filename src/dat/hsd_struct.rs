@@ -128,6 +128,10 @@ impl<'a> HSDStruct<'a> {
         }
     }
 
+    pub fn get_references(&self) -> Rc<RefCell<HashMap<usize, HSDStruct<'a>>>> {
+        self.references.clone()
+    }
+
     pub fn get_bytes<'b>(&'b self, location: usize, len: usize) -> &'a [u8] {
         &self.data[location..location+len]
     }

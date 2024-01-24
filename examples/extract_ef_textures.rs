@@ -4,7 +4,7 @@ fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
     //let dat = files.read_file("EfCoData.dat").unwrap();
-    let dat = files.read_file("EfFxData.dat").unwrap();
+    let dat = files.read_file("EfPeData.dat").unwrap();
     let hsd_ef_dat = dat_tools::dat::HSDRawFile::new(&dat);
 
     let table = dat_tools::dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
@@ -18,6 +18,7 @@ fn main() {
     //    println!("{}", r.root_string);
     //}
 
+    println!("{}", models.len());
     let mut i = 0;
     //let model = &models[0]; // shield stuff
     //let model = &models[26]; // blast zone stuff???
