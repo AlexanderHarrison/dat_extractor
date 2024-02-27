@@ -18,8 +18,8 @@ pub struct Bone {
 pub struct PrimitiveGroup {
     pub texture_idx: Option<u16>,
 
-    pub prim_start: u16,
-    pub prim_len: u16,
+    pub indices_start: u16,
+    pub indices_len: u16,
     pub model_group_idx: u8,
 }
 
@@ -40,19 +40,6 @@ pub enum PrimitiveType {
     Quads = 0x80
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Primitive {
-    Triangles {
-        vert_start: u32,
-        vert_len: u16,
-    },
-    TriangleStrip {
-        vert_start: u32,
-        vert_len: u16,
-    },
-}
-
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Vertex {
@@ -69,7 +56,7 @@ unsafe impl bytemuck::NoUninit for Vertex {}
 
 #[derive(Debug, Clone)]
 pub struct MeshBuilder {
-    pub primitives: Vec<Primitive>,
+    pub indices: Vec<u16>,
     pub vertices: Vec<Vertex>,
 }
 
@@ -83,7 +70,7 @@ pub struct Model {
     pub primitive_groups: Box<[PrimitiveGroup]>,
     pub textures: Box<[Texture]>,
 
-    pub primitives: Box<[Primitive]>,
+    pub indices: Box<[u16]>,
     pub vertices: Box<[Vertex]>,
 }
 
@@ -146,7 +133,7 @@ pub fn extract_model_from_jobj<'a>(
 
     // get meshes / primitives / vertices ------------------------------------------------------
     let mut builder = MeshBuilder {
-        primitives: Vec::with_capacity(256),
+        indices: Vec::with_capacity(8192),
         vertices: Vec::with_capacity(8192),
     };
 
@@ -191,25 +178,25 @@ pub fn extract_model_from_jobj<'a>(
                 };
 
                 dobj_idx += 1;
-
                 pgroup_len += 1;
 
-                let prim_start = builder.primitives.len() as _;
-                let mut prim_len = 0;
+                let indices_start = builder.indices.len() as u16;
 
                 if let Some(pobj) = dobj.get_pobj() {
                     for pobj in pobj.siblings() {
-                        prim_len += pobj.decode_primitives(&mut builder, &bone_jobjs);
+                        pobj.decode_primitives(&mut builder, &bone_jobjs);
                     }
                 }
 
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
 
+                let indices_len = builder.indices.len() as u16 - indices_start;
+
                 pgroups.push(PrimitiveGroup {
                     model_group_idx,
                     texture_idx,
-                    prim_start,
-                    prim_len,
+                    indices_start,
+                    indices_len,
                 })
             }
         }
@@ -248,7 +235,7 @@ pub fn extract_model_from_jobj<'a>(
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),
         primitive_groups: pgroups.into_boxed_slice(),
         textures: textures.into_boxed_slice(),
-        primitives: builder.primitives.into_boxed_slice(),
+        indices: builder.indices.into_boxed_slice(),
         vertices: builder.vertices.into_boxed_slice(),
     };
 
@@ -306,40 +293,40 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
     ))
 }
 
-impl Model {
-    pub fn cube() -> Self {
-        const V: Vertex = Vertex { pos: Vec3::ZERO, uv: Vec2::ZERO, normal: Vec3::ZERO,
-            weights: Vec4::ZERO, bones: UVec4::ZERO, colour: Vec4::ZERO };
-
-        Self {
-            bones: vec![Bone { parent: None, child_start: 0, child_len: 0, pgroup_start: 0, pgroup_len: 1 }].into(),
-            bone_child_idx: vec![].into(),
-            base_transforms: vec![Mat4::IDENTITY].into(),
-            inv_world_transforms: vec![Mat4::IDENTITY].into(),
-
-            primitive_groups: vec![PrimitiveGroup { texture_idx: None, prim_start: 0, prim_len: 1, model_group_idx: 0 }].into(),
-            textures: vec![].into(),
-
-            primitives: vec![Primitive::TriangleStrip { vert_start: 0, vert_len: 14 }].into(),
-            vertices: vec![
-                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1.,  1.), colour: Vec4::new(1., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1., -1.), colour: Vec4::new(0., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1., -1.), colour: Vec4::new(1., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
-                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
-            ].into(),
-        }
-    }
-}
+//impl Model {
+//    pub fn cube() -> Self {
+//        const V: Vertex = Vertex { pos: Vec3::ZERO, uv: Vec2::ZERO, normal: Vec3::ZERO,
+//            weights: Vec4::ZERO, bones: UVec4::ZERO, colour: Vec4::ZERO };
+//
+//        Self {
+//            bones: vec![Bone { parent: None, child_start: 0, child_len: 0, pgroup_start: 0, pgroup_len: 1 }].into(),
+//            bone_child_idx: vec![].into(),
+//            base_transforms: vec![Mat4::IDENTITY].into(),
+//            inv_world_transforms: vec![Mat4::IDENTITY].into(),
+//
+//            primitive_groups: vec![PrimitiveGroup { texture_idx: None, prim_start: 0, prim_len: 1, model_group_idx: 0 }].into(),
+//            textures: vec![].into(),
+//
+//            primitives: vec![Primitive::TriangleStrip { vert_start: 0, vert_len: 14 }].into(),
+//            vertices: vec![
+//                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1.,  1.,  1.), colour: Vec4::new(1., 1., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1.,  1., -1.), colour: Vec4::new(0., 1., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1.,  1., -1.), colour: Vec4::new(1., 1., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1., -1., -1.), colour: Vec4::new(1., 0., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new( 1., -1.,  1.), colour: Vec4::new(1., 0., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1., -1., -1.), colour: Vec4::new(0., 0., 0., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1., -1.,  1.), colour: Vec4::new(0., 0., 1., 1. ) , ..V },
+//                Vertex { pos: Vec3::new(-1.,  1.,  1.), colour: Vec4::new(0., 1., 1., 1. ) , ..V },
+//            ].into(),
+//        }
+//    }
+//}
 
 impl PrimitiveType {
     pub fn from_u8(n: u8) -> Option<Self> {

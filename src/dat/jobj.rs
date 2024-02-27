@@ -1,6 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use crate::dat::{HSDStruct, HSDRootNode, Vertex, Primitive, PrimitiveType, MeshBuilder, 
+use crate::dat::{HSDStruct, HSDRootNode, Vertex, PrimitiveType, MeshBuilder, 
     textures::MOBJ};
 use glam::f32::{Vec3, Quat, Mat4};
 
@@ -223,12 +223,11 @@ impl<'a> POBJ<'a> {
     }
 
     /// does not decode siblings.
-    /// returns number of primitives decoded
     pub fn decode_primitives<'b>(
         &'b self, 
         builder: &mut MeshBuilder,
         bone_jobjs: &[JOBJ<'a>],
-    ) -> u16 {
+    ) {
         let attributes = self.get_attributes();
 
         let buffer = self.hsd_struct.get_buffer(0x10);
@@ -236,16 +235,13 @@ impl<'a> POBJ<'a> {
 
         let reader = crate::dat::Stream::new(buffer);
 
-        let mut vertex_cache = Vec::with_capacity(32);
-
-        let mut prim_count = 0;
         while !reader.finished() {
             let b = reader.read_byte();
             if b == 0 { break }
 
-            let vert_start = builder.vertices.len() as _;
+            let vert_start = builder.vertices.len() as u16;
             let primitive_type = PrimitiveType::from_u8(b).unwrap();
-            let vert_len = reader.read_i16() as _;
+            let vert_len = reader.read_u16();
 
             // add vertices ------------------------------------------------
             for _ in 0..vert_len {
@@ -349,46 +345,28 @@ impl<'a> POBJ<'a> {
             }
 
             // add primitives ---------------------------------------------------
+            // we convert everything into indexed triangles
             match primitive_type {
                 PrimitiveType::Triangles => {
-                    builder.primitives.push(Primitive::Triangles {
-                        vert_start,
-                        vert_len,
-                    })
+                    for i in vert_start..(vert_start+vert_len) {
+                        builder.indices.push(i);
+                    }
                 }
                 PrimitiveType::TriangleStrip => {
-                    builder.primitives.push(Primitive::TriangleStrip {
-                        vert_start,
-                        vert_len,
-                    })
+                    if vert_len != 0 {
+                        for i in vert_start..(vert_start+vert_len-2) {
+                            builder.indices.extend([i+0, i+1, i+2]);
+                        }
+                    }
                 }
                 PrimitiveType::Quads => {
-                    // hack: reform vertices to form quads into triangles (glow doesn't use quads)
-                    // this is inefficient, but quads are fairly uncommon
-                    
-                    vertex_cache.clear();
-                    for v in builder.vertices[vert_start as usize..].iter().copied() {
-                        vertex_cache.push(v);
+                    for i in (vert_start..(vert_start+vert_len)).step_by(4) {
+                        builder.indices.extend([i+0, i+1, i+2]);
+                        builder.indices.extend([i+2, i+3, i+0]);
                     }
-                    builder.vertices.truncate(vert_start as usize);
-
-                    for vs in vertex_cache.chunks_exact(4) {
-                        let [v1, v2, v3, v4]: [Vertex; 4] = vs.try_into().unwrap();
-                        builder.vertices.extend([v1, v2, v3]);
-                        builder.vertices.extend([v3, v4, v1]);
-                    }
-
-                    builder.primitives.push(Primitive::Triangles {
-                        vert_start,
-                        vert_len: vert_len / 4 * 6, // 6 vertices per quad
-                    });
                 }
             }
-
-            prim_count += 1;
         }
-
-        prim_count
     }
 }
 

@@ -376,6 +376,12 @@ impl<'a> Stream<'a> {
         i16::from_be_bytes(bytes)
     }
 
+    pub fn read_u16(&self) -> u16 {
+        let bytes: [u8; 2] = self.data[self.cursor()..self.cursor() + 2].try_into().unwrap();
+        self.bump_cursor(2);
+        u16::from_be_bytes(bytes)
+    }
+
     pub fn read_chars(&self, n: usize) -> &'a str {
         let range = self.cursor()..self.cursor()+n;
         let s = std::str::from_utf8(&self.data[range]).unwrap();
