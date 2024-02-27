@@ -235,13 +235,15 @@ impl<'a> POBJ<'a> {
 
         let reader = crate::dat::Stream::new(buffer);
 
+        let mut primitive_indices: Vec<u16> = Vec::with_capacity(256);
+
         while !reader.finished() {
             let b = reader.read_byte();
             if b == 0 { break }
 
-            let vert_start = builder.vertices.len() as u16;
             let primitive_type = PrimitiveType::from_u8(b).unwrap();
             let vert_len = reader.read_u16();
+            primitive_indices.clear();
 
             // add vertices ------------------------------------------------
             for _ in 0..vert_len {
@@ -337,32 +339,67 @@ impl<'a> POBJ<'a> {
                     weights: weights.into(),
                     colour: colour.into(),
                 };
-                
-                //let len = normal[0].powi(2) + normal[1].powi(2) + normal[2].powi(2);
-                //println!("{:?}", len);
-                //assert!(0.99 < len && len < 1.01);
-                builder.vertices.push(vertex);
+
+                let cache_start = builder.vertices.len().saturating_sub(32);
+                if let Some(v_i) = builder.vertices[cache_start..].iter().copied().position(|v| v == vertex) {
+                    primitive_indices.push((cache_start + v_i) as u16);
+                } else {
+                    primitive_indices.push(builder.vertices.len() as u16);
+                    builder.vertices.push(vertex);
+                }
             }
 
             // add primitives ---------------------------------------------------
             // we convert everything into indexed triangles
             match primitive_type {
                 PrimitiveType::Triangles => {
-                    for i in vert_start..(vert_start+vert_len) {
-                        builder.indices.push(i);
-                    }
+                    builder.indices.extend_from_slice(&primitive_indices);
                 }
                 PrimitiveType::TriangleStrip => {
                     if vert_len != 0 {
-                        for i in vert_start..(vert_start+vert_len-2) {
-                            builder.indices.extend([i+0, i+1, i+2]);
+                        let mut idx_iter = 0..(vert_len as usize-2);
+
+                        // alternate triangle direction
+                        loop {
+                            match idx_iter.next() {
+                                Some(i) => {
+                                    let idx_0 = primitive_indices[i+0];
+                                    let idx_1 = primitive_indices[i+1];
+                                    let idx_2 = primitive_indices[i+2];
+                                    builder.indices.push(idx_0);
+                                    builder.indices.push(idx_1);
+                                    builder.indices.push(idx_2);
+                                }
+                                None => break,
+                            }
+
+                            match idx_iter.next() {
+                                Some(i) => {
+                                    let idx_0 = primitive_indices[i+0];
+                                    let idx_1 = primitive_indices[i+1];
+                                    let idx_2 = primitive_indices[i+2];
+                                    builder.indices.push(idx_0);
+                                    builder.indices.push(idx_2);
+                                    builder.indices.push(idx_1);
+                                }
+                                None => break,
+                            }
                         }
                     }
                 }
                 PrimitiveType::Quads => {
-                    for i in (vert_start..(vert_start+vert_len)).step_by(4) {
-                        builder.indices.extend([i+0, i+1, i+2]);
-                        builder.indices.extend([i+2, i+3, i+0]);
+                    for i in (0..vert_len as usize).step_by(4) {
+                        let idx_0 = primitive_indices[i+0];
+                        let idx_1 = primitive_indices[i+1];
+                        let idx_2 = primitive_indices[i+2];
+                        let idx_3 = primitive_indices[i+3];
+                        builder.indices.push(idx_0);
+                        builder.indices.push(idx_1);
+                        builder.indices.push(idx_2);
+
+                        builder.indices.push(idx_2);
+                        builder.indices.push(idx_3);
+                        builder.indices.push(idx_0);
                     }
                 }
             }

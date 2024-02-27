@@ -41,7 +41,7 @@ pub enum PrimitiveType {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Vertex {
     pub pos: Vec3,
     pub uv: Vec2,
