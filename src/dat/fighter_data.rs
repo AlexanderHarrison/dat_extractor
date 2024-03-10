@@ -77,8 +77,12 @@ impl<'a> FighterDataRoot<'a> {
                 let mut model = None;
 
                 let scale = match article.try_get_reference(0x00) {
+                    // occasionally returns a struct half the size?????????
+                    Some(item_common_attributes) if item_common_attributes.len() != 132 => 1.0,
+
                     // SBM_ArticlePointer.cs (SBM_ItemCommonAttr)
                     Some(item_common_attributes) => item_common_attributes.get_f32(0x60),
+
                     None => 1.0,
                 };
 

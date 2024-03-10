@@ -372,7 +372,7 @@ pub const fn character_model_filename(character: CharacterColour) -> &'static st
         Jigglypuff    (JigglypuffColour    ::Green    ) => "PlPrGr.dat",
         Jigglypuff    (JigglypuffColour    ::Yellow   ) => "PlPrYe.dat",
 
-        Samus         (SamusColour         ::Neutral  ) => "PlSsNe.dat",
+        Samus         (SamusColour         ::Neutral  ) => "PlSsNr.dat",
         Samus         (SamusColour         ::Pink     ) => "PlSsPi.dat",
         Samus         (SamusColour         ::Black    ) => "PlSsBk.dat",
         Samus         (SamusColour         ::Green    ) => "PlSsGr.dat",

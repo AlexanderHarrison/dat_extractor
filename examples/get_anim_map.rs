@@ -5,7 +5,7 @@ fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
 
-    let character = CharacterColour::Peach(slp_parser::character_colours::PeachColour::Blue);
+    let character = CharacterColour::Samus(slp_parser::character_colours::SamusColour::Neutral);
     //let character = CharacterColour::Sheik(slp_parser::character_colours::ZeldaColour::Neutral);
     let data = dat_tools::get_fighter_data(&mut files, character).unwrap();
 

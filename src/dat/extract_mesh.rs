@@ -144,6 +144,7 @@ pub fn extract_model_from_jobj<'a>(
     let mut texture_cache = HashMap::with_capacity(64);
 
     let mut dobj_idx = 0;
+    let t = std::time::Instant::now();
     for (i, jobj) in bone_jobjs.iter().enumerate() {
         let pgroup_start = pgroups.len() as _;
         let mut pgroup_len = 0;
@@ -205,6 +206,7 @@ pub fn extract_model_from_jobj<'a>(
         bone.pgroup_start = pgroup_start;
         bone.pgroup_len = pgroup_len;
     }
+    println!("mesh decode time: {}us\t {} vertices", t.elapsed().as_micros(), builder.vertices.len());
 
     // get transforms ------------------------------------------------------
     let mut base_transforms = Vec::with_capacity(bones.len());
