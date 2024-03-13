@@ -17,6 +17,9 @@ pub struct AnimationFrame {
     pub animated_transforms: Box<[Mat4]>,
     pub animated_world_transforms: Box<[Mat4]>,
     pub animated_bind_transforms: Box<[Mat4]>,
+    
+    pub animated_world_inv_transforms: Box<[Mat4]>,
+    pub animated_bind_inv_transforms: Box<[Mat4]>,
 }
 
 impl AnimationFrame {
@@ -25,6 +28,8 @@ impl AnimationFrame {
         let animated_transforms = model.base_transforms.to_vec().into_boxed_slice();
         let mut animated_world_transforms = Vec::with_capacity(bone_len);
         let mut animated_bind_transforms = Vec::with_capacity(bone_len);
+        let mut animated_world_inv_transforms = Vec::with_capacity(bone_len);
+        let mut animated_bind_inv_transforms = Vec::with_capacity(bone_len);
 
         for (i, base_transform) in model.base_transforms.iter().enumerate() {
             let world_transform = match model.bones[i].parent {
@@ -33,14 +38,18 @@ impl AnimationFrame {
             };
 
             animated_world_transforms.push(world_transform);
+            animated_world_inv_transforms.push(world_transform.inverse());
             let bind_transform = world_transform * model.inv_world_transforms[i];
             animated_bind_transforms.push(bind_transform);
+            animated_bind_inv_transforms.push(bind_transform.inverse());
         }
 
         AnimationFrame {
             animated_transforms,
             animated_world_transforms: animated_world_transforms.into_boxed_slice(),
             animated_bind_transforms: animated_bind_transforms.into_boxed_slice(),
+            animated_world_inv_transforms: animated_world_inv_transforms.into_boxed_slice(),
+            animated_bind_inv_transforms: animated_bind_inv_transforms.into_boxed_slice(),
         }
     }
 
@@ -438,8 +447,10 @@ impl Animation {
             };
 
             prev_frame.animated_world_transforms[i] = animated_world_transform;
+            prev_frame.animated_world_inv_transforms[i] = animated_world_transform.inverse();
             let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
             prev_frame.animated_bind_transforms[i] = animated_bind_transform;
+            prev_frame.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
         }
     }
 }
