@@ -388,6 +388,8 @@ impl Animation {
         mut frame_num: f32, 
         prev_frame: &mut AnimationFrame,
         model: &Model,
+        prev_end_frame: Option<&[Mat4]>,
+        frames_in_anim: usize,
     ) {
         if self.flags & anim_flags::LOOP != 0 {
             while frame_num > self.end_frame {
@@ -397,9 +399,33 @@ impl Animation {
 
         for transform in self.transforms.iter() {
             let bone_index = transform.bone_index;
-            let base_transform = &model.base_transforms[bone_index];
-            prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base_transform);
+            let base = &model.base_transforms[bone_index];
+            prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base);
         }
+
+        // iterpolation
+        if let Some(end_frame) = prev_end_frame {
+            if frames_in_anim <= 3 {
+                for transform in self.transforms.iter() {
+                    let bone_index = transform.bone_index;
+
+                    let base = &end_frame[bone_index];
+                    let (base_scale, base_qrot, base_translation) = base.to_scale_rotation_translation();
+
+                    let new = &prev_frame.animated_transforms[bone_index];
+                    let (new_scale, new_qrot, new_translation) = new.to_scale_rotation_translation();
+
+                    let scale = 0.8 + 0.05*frame_num;
+                    let lerp_scale = base_scale.lerp(new_scale, scale);
+                    let slerp_qrot = base_qrot.slerp(new_qrot, scale);
+                    let lerp_translation = base_translation.lerp(new_translation, scale);
+
+                    prev_frame.animated_transforms[bone_index] = 
+                        Mat4::from_scale_rotation_translation(lerp_scale, slerp_qrot, lerp_translation);
+                }
+            } 
+        }
+
 
         // Remove translation from root jobj.
         // This is given by slippi recording.
