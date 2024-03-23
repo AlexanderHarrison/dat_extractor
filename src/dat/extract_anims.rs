@@ -63,10 +63,36 @@ impl AnimationFrame {
             };
 
             self.animated_world_transforms[i] = world_transform;
+            self.animated_world_inv_transforms[i] = world_transform.inverse();
             let bind_transform = world_transform * model.inv_world_transforms[i];
             self.animated_bind_transforms[i] = bind_transform;
+            self.animated_bind_inv_transforms[i] = bind_transform.inverse();
         }
     }
+
+    pub fn custom(&mut self, model: &Model, updates: &[(u32, Mat4)]) {
+        for (bone, mat) in updates.iter().copied() {
+            let bone = bone as usize;
+            self.animated_transforms[bone] = mat;
+        }
+
+        for (i, animated_transform) in self.animated_transforms.iter().copied().enumerate() {
+
+            let animated_world_transform = match model.bones[i].parent {
+                Some(p_i) => self.animated_world_transforms[p_i as usize] * animated_transform,
+                None => animated_transform
+            };
+
+            //let animated_world_transform = world_transform * animated_transform;
+
+            self.animated_world_transforms[i] = animated_world_transform;
+            self.animated_world_inv_transforms[i] = animated_world_transform.inverse();
+            let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
+            self.animated_bind_transforms[i] = animated_bind_transform;
+            self.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
+        }
+    }
+
 
     //pub fn obj(&self, model: &Model) {
     //    let mut i = 1;
@@ -399,6 +425,7 @@ impl Animation {
         model: &Model,
         prev_end_frame: Option<&[Mat4]>,
         frames_in_anim: usize,
+        remove_animation_translation: bool,
     ) {
         if self.flags & anim_flags::LOOP != 0 {
             while frame_num > self.end_frame {
@@ -412,7 +439,6 @@ impl Animation {
             prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base);
         }
 
-        // iterpolation
         if let Some(end_frame) = prev_end_frame {
             if frames_in_anim <= 3 {
                 for transform in self.transforms.iter() {
@@ -435,10 +461,11 @@ impl Animation {
             } 
         }
 
-
-        // Remove translation from root jobj.
-        // This is given by slippi recording.
-        prev_frame.animated_transforms[1].w_axis = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        if remove_animation_translation {
+            // Remove translation from root jobj.
+            // This is given by slippi recording.
+            prev_frame.animated_transforms[1].w_axis = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        }
 
         for (i, animated_transform) in prev_frame.animated_transforms.iter().enumerate() {
             let animated_world_transform = match model.bones[i].parent {

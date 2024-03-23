@@ -3,7 +3,7 @@ use dat_tools::isoparser::ISODatFiles;
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let stage_dat = files.read_file("GrPs1.dat").unwrap();
+    let stage_dat = files.read_file("GrPs2.dat").unwrap();
     let stage_dat = dat_tools::dat::HSDRawFile::new(&stage_dat);
     let models = dat_tools::dat::extract_stage(&stage_dat).unwrap().1;
 

@@ -1,7 +1,6 @@
 #![allow(clippy::upper_case_acronyms)]
 
-use crate::dat::{HSDStruct, HSDRootNode, Vertex, PrimitiveType, MeshBuilder, 
-    textures::MOBJ};
+use crate::dat::{HSDStruct, HSDRootNode, Vertex, PrimitiveType, MeshBuilder, textures::MOBJ};
 use glam::f32::{Vec3, Quat, Mat4};
 
 #[derive(Clone, PartialEq, Eq, Hash)]

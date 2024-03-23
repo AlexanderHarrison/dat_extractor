@@ -77,8 +77,8 @@ pub fn try_decode_texture<'a>(
     // They contain bump maps, lighting maps, etc.
 
     let render_mode = mobj.flags();
-    if render_mode & (1 << 24) != 0 { println!("unused z offset") }
-    let data_ptr = tobj.image_buffer().unwrap().as_ptr();
+    if render_mode & (1 << 24) != 0 { eprintln!("unused z offset") }
+    let data_ptr = tobj.image_buffer()?.as_ptr();
 
     use std::collections::hash_map::Entry;
     match cache.entry(data_ptr) {
@@ -396,7 +396,7 @@ impl InternalTextureFormat {
 }
 
 // GXImageConverter.cs:396 (fromRGBA8)
-fn decode_rgba8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_rgba8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -422,7 +422,7 @@ fn decode_rgba8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mu
 }
 
 // GXImageConverter.cs:622 (fromRGB565)
-fn decode_rgb565_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_rgb565_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -445,7 +445,7 @@ fn decode_rgb565_image(data: &[u8], width: usize, height: usize, rgba_buffer: &m
 }
 
 // GXImageConverter.cs:622 (fromRGB5A3)
-fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -479,7 +479,7 @@ fn decode_rgb5a3_image(data: &[u8], width: usize, height: usize, rgba_buffer: &m
 }
 
 // GXImageConverter.cs:706 (fromI4)
-fn decode_i4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_i4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     //if width < 8 || height < 8 {
@@ -510,7 +510,7 @@ fn decode_i4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [
 }
 
 // GXImageConverter.cs:790 (fromI8)
-fn decode_i8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_i8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -532,7 +532,7 @@ fn decode_i8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [
 }
 
 // GXImageConverter.cs:868 (fromIA4)
-fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -557,7 +557,7 @@ fn decode_ia4_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut 
 }
 
 // GXImageConverter.cs:940 (fromIA8)
-fn decode_ia8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_ia8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut inp = 0;
 
     for y in (0..height).step_by(4) {
@@ -582,7 +582,7 @@ fn decode_ia8_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut 
 }
 
 // GXImageConverter.cs:1103 (fromCI4)
-fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut i = 0;
 
     for y in (0..height).step_by(8) {
@@ -605,7 +605,7 @@ fn decode_ci4_image(data: &[u8], palette: &[u32], width: usize, height: usize, r
 }
 
 // GXImageConverter.cs:1103 (fromCI8)
-fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut i = 0;
 
     for y in (0..height).step_by(4) {
@@ -630,7 +630,7 @@ fn decode_ci8_image(data: &[u8], palette: &[u32], width: usize, height: usize, r
 //
 // only decodes the first mipmap.
 // RGBA8 format
-fn decode_compressed_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
+pub fn decode_compressed_image(data: &[u8], width: usize, height: usize, rgba_buffer: &mut [u32]) {
     let mut c = [0u32; 4];
 
     fn get_r(n: u32) -> u32 { (n & 0x00FF0000) >> 16 }

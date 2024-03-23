@@ -124,7 +124,8 @@ impl<'a> HSDRawFile<'a> {
         let string_start = r.cursor() + (ref_count + root_count) * 8;
 
         for _ in 0..root_count {
-            root_offsets.push(r.read_i32() as usize + 0x20);
+            let root_offset = r.read_i32() as usize + 0x20;
+            root_offsets.push(root_offset);
 
             let j = r.read_i32() as usize;
             let rstring = r.read_string(string_start + j);
