@@ -85,6 +85,13 @@ impl<'a> HSDStruct<'a> {
         Some((0..len).map(move |i| data.get_embedded_struct(stride * i, stride)))
     }
 
+    pub fn try_get_null_ptr_array(&self, loc: usize) -> Option<impl Iterator<Item=HSDStruct<'a>>> {
+        let ptr_array = self.try_get_reference(loc)?;
+        let count = (ptr_array.len() / 4) - 1;
+
+        Some((0..count).map(move |i| ptr_array.get_reference(i * 4)))
+    }
+
     pub fn get_embedded_struct<'b>(&'b self, loc: usize, len: usize) -> HSDStruct<'a> {
         let data = self.get_bytes(loc, len);
 

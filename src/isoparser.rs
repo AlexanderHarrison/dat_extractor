@@ -1,7 +1,8 @@
-use std::io::{Read, Seek, SeekFrom, self};
+use std::io::{Write, Read, Seek, SeekFrom, self};
 use std::fs::File;
 use std::collections::HashMap;
 use crate::dat::DatFile;
+use std::rc::Rc;
 
 const OFFSET_FST_OFFSET: u64 = 0x424;
 
@@ -9,10 +10,13 @@ const OFFSET_FST_OFFSET: u64 = 0x424;
 pub enum ISOParseError {
     FileNotFound,
     InvalidISO,
+    ReplacementFileTooLarge,
+    WriteError(std::io::Error),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct DatFileLocation {
+    header_offset: u64,
     start_offset: u64,
     size: usize,
 }
@@ -77,6 +81,33 @@ impl ISODatFiles {
         let dat = self.read_file(name).map_err(<ISOParseError as Into<io::Error>>::into)?;
         std::fs::write(save_path, dat.data)
     }
+
+    pub fn write_file(&mut self, file: &str, source: Rc<[u8]>) -> Result<(), ISOParseError> {
+        let mut dst = self.files[file];
+
+        if dst.size > source.len() {
+            return Err(ISOParseError::ReplacementFileTooLarge);
+        }
+
+        //if self.iso.options.G
+
+        dst.size = source.len();
+
+        if let Some(f) = self.open_files.get_mut(&dst) {
+            f.data = source.clone();
+        }
+
+        // write data
+        self.iso.seek(SeekFrom::Start(dst.start_offset)).map_err(|_| ISOParseError::InvalidISO)?;
+        self.iso.write_all(&source).map_err(|e| ISOParseError::WriteError(e))?;
+
+        // write file size in header
+        self.iso.seek(SeekFrom::Start(dst.header_offset + 0x8)).map_err(|_| ISOParseError::InvalidISO)?;
+        let file_size = (source.len() as u32).to_be_bytes();
+        self.iso.write_all(&file_size).map_err(|e| ISOParseError::WriteError(e))?;
+
+        Ok(())
+    }
 }
 
 fn read_files(
@@ -109,6 +140,7 @@ fn read_files(
             let filename = read_filename(iso, string_table_offset + filename_offset)?;
 
             files.insert(filename, DatFileLocation {
+                header_offset: offset,
                 start_offset: file_offset as _,
                 size: file_size as _,
             });
@@ -152,6 +184,15 @@ impl Into<io::Error> for ISOParseError {
         match self {
             ISOParseError::FileNotFound => io::Error::from(io::ErrorKind::NotFound),
             ISOParseError::InvalidISO => io::Error::from(io::ErrorKind::InvalidData),
+            ISOParseError::ReplacementFileTooLarge => io::Error::from(io::ErrorKind::InvalidData),
+            ISOParseError::WriteError(e) => e,
         }
+    }
+}
+
+impl std::ops::Drop for ISODatFiles {
+    fn drop(&mut self) {
+        self.iso.sync_all().unwrap();
+        self.iso.flush().unwrap();
     }
 }

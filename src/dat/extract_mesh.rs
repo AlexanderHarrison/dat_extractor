@@ -1,4 +1,8 @@
-use crate::dat::{HSDStruct, HSDRawFile, JOBJ, HighPolyBoneIndicies, DatExtractError, textures::{try_decode_texture, Texture}};
+use crate::dat::{
+    HSDStruct, HSDRawFile, JOBJ, HighPolyBoneIndicies, DatExtractError, 
+    textures::{try_decode_texture, Texture},
+    Animation, parse_joint_anim, anim_flags,
+};
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
 
@@ -271,10 +275,24 @@ impl<'a> MapGOBJ<'a> {
     pub fn root_jobj(&self) -> JOBJ<'a> {
         JOBJ::new(self.hsd_struct.get_reference(0x00))
     }
+
+    pub fn joint_animations(&self) -> Vec<Animation> {
+        if let Some(iter) = self.hsd_struct.try_get_null_ptr_array(0x04) {
+            iter.filter_map(|s| parse_joint_anim(s))
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+pub struct StageSection {
+    pub model: Model,
+    pub joint_animations: Vec<Animation>,
 }
 
 /// returns (scale, models)
-pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl Iterator<Item=Model> + 'a), DatExtractError> {
+pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl Iterator<Item=StageSection> + 'a), DatExtractError> {
     let stage_root = parsed_stage_dat.roots.iter()
         .find(|root| root.root_string == "map_head")
         .ok_or(DatExtractError::InvalidDatFile)?
@@ -291,7 +309,16 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
     Ok((
         scale, 
         stage_root.get_model_groups()
-            .map(|m| extract_model_from_jobj(m.root_jobj(), None).unwrap())
+            .map(|m| {
+                let model = extract_model_from_jobj(m.root_jobj(), None).unwrap();
+                let mut joint_animations = m.joint_animations();
+
+                // HACK
+                for anim in joint_animations.iter_mut() {
+                    anim.flags |= anim_flags::LOOP
+                }
+                StageSection { model, joint_animations }
+            })
     ))
 }
 

@@ -291,7 +291,13 @@ pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
         let mut tracks = Vec::new();
 
         for fobj_desc in fobj_desc.iter_joint_list(0x00) {
-            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+            let track_type = match TrackType::from_u8(fobj_desc.get_u8(0x0C)) {
+                Some(t) => t,
+                None => {
+                    eprintln!("no track type");
+                    continue;
+                }
+            };
             if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
                 continue;
             }
@@ -429,7 +435,7 @@ impl Animation {
     ) {
         if self.flags & anim_flags::LOOP != 0 {
             while frame_num > self.end_frame {
-                frame_num -= self.end_frame;
+                frame_num -= self.end_frame
             }
         }
 
