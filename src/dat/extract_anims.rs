@@ -187,10 +187,9 @@ pub mod anim_flags {
 
 #[derive(Clone, Debug)]
 pub struct Animation {
-    pub name: Box<str>,
     pub transforms: Box<[AnimTransform]>,
-    pub flags: AnimFlags,
     pub end_frame: f32,
+    pub flags: AnimFlags,
 }
 
 #[derive(Clone, Debug)]
@@ -316,7 +315,6 @@ pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
         None
     } else {
         Some(Animation {
-            name: String::new().into_boxed_str(),
             transforms: joint_anims.into_boxed_slice(),
             end_frame,
             flags,
@@ -373,7 +371,6 @@ pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
 //        None
 //    } else {
 //        Some(Animation {
-//            name: String::new().into_boxed_str(),
 //            transforms: joint_anims.into_boxed_slice(),
 //            end_frame,
 //            flags,
@@ -381,91 +378,103 @@ pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
 //    }
 //}
 
-/// Pass in the raw data of the animations file - Pl*AJ.dat
-/// That is necessary (for now).
-pub fn extract_anims(
+//pub fn extract_anims_from_actions(
+//    aj_dat: &DatFile,
+//    actions: Box<[FighterAction]>
+//) -> Result<Box<[Animation]>, DatExtractError> {
+//    let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
+//
+//    for action in actions.to_vec().into_iter() {
+//        let offset = action.animation_offset;
+//        let size = action.animation_size;
+//        let anim_data = &aj_dat.data[offset..offset+size];
+//
+//        // TODO might be discarding some animations??
+//        if let Some(name) = action.name {
+//            if animations.iter().all(|a| *a.name != *name) {
+//                let stream = Stream::new(anim_data);
+//                let hsd_file = HSDRawFile::open(stream);
+//
+//                // likely no other roots
+//                let anim_root = &hsd_file.roots[0];
+//                assert!(anim_root.root_string.contains("figatree"));
+//
+//                let figatree = FigaTree::new(anim_root.hsd_struct.clone());
+//
+//                let frame_count = figatree.frame_count();
+//
+//                let animation = Animation {
+//                    name,
+//                    transforms: extract_anim_transforms(figatree),
+//                    end_frame: frame_count,
+//                    flags: 0,
+//                };
+//
+//                animations.push(animation);
+//            }
+//        }
+//    }
+//
+//    Ok(animations.into_boxed_slice())
+//}
+pub fn extract_anim_from_action( 
     aj_dat: &DatFile,
-    actions: Box<[FighterAction]>
-) -> Result<Box<[Animation]>, DatExtractError> {
-    let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
+    fighter_action_struct: HSDStruct,
+) -> Option<Animation> {
+    let offset = fighter_action_struct.get_u32(0x04) as usize;
+    let size = fighter_action_struct.get_u32(0x08) as usize;
+    if offset == 0 && size == 0 { return None; }
+    let anim_data = &aj_dat.data[offset..offset+size];
 
-    for action in actions.to_vec().into_iter() {
-        let offset = action.animation_offset;
-        let size = action.animation_size;
-        let anim_data = &aj_dat.data[offset..offset+size];
+    let stream = Stream::new(anim_data);
+    let hsd_file = HSDRawFile::open(stream);
 
-        // TODO might be discarding some animations??
-        if let Some(name) = action.name {
-            if animations.iter().all(|a| *a.name != *name) {
-                let stream = Stream::new(anim_data);
-                let hsd_file = HSDRawFile::open(stream);
+    let anim_root = &hsd_file.roots[0];
+    let figatree = FigaTree::new(anim_root.hsd_struct.clone());
+    let frame_count = figatree.frame_count();
 
-                // likely no other roots
-                let anim_root = &hsd_file.roots[0];
-                assert!(anim_root.root_string.contains("figatree"));
-
-                let figatree = FigaTree::new(anim_root.hsd_struct.clone());
-
-                let frame_count = figatree.frame_count();
-
-                let animation = Animation {
-                    name,
-                    transforms: extract_anim_transforms(figatree),
-                    end_frame: frame_count,
-                    flags: 0,
-                };
-
-                animations.push(animation);
-            }
-        }
-    }
-
-    Ok(animations.into_boxed_slice())
+    Some(Animation {
+        transforms: extract_anim_transforms(figatree),
+        end_frame: frame_count,
+        flags: 0,
+    })
 }
 
 impl Animation {
     pub fn frame_at(
         &self, 
-        mut frame_num: f32, 
+        frame_num: f32, 
         prev_frame: &mut AnimationFrame,
         model: &Model,
-        prev_end_frame: Option<&[Mat4]>,
-        frames_in_anim: usize,
         remove_animation_translation: bool,
     ) {
-        if self.flags & anim_flags::LOOP != 0 {
-            while frame_num > self.end_frame {
-                frame_num -= self.end_frame
-            }
-        }
-
         for transform in self.transforms.iter() {
             let bone_index = transform.bone_index;
             let base = &model.base_transforms[bone_index];
             prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base);
         }
 
-        if let Some(end_frame) = prev_end_frame {
-            if frames_in_anim <= 3 {
-                for transform in self.transforms.iter() {
-                    let bone_index = transform.bone_index;
+        //if let Some(end_frame) = prev_end_frame {
+        //    if frames_in_anim <= 3 {
+        //        for transform in self.transforms.iter() {
+        //            let bone_index = transform.bone_index;
 
-                    let base = &end_frame[bone_index];
-                    let (base_scale, base_qrot, base_translation) = base.to_scale_rotation_translation();
+        //            let base = &end_frame[bone_index];
+        //            let (base_scale, base_qrot, base_translation) = base.to_scale_rotation_translation();
 
-                    let new = &prev_frame.animated_transforms[bone_index];
-                    let (new_scale, new_qrot, new_translation) = new.to_scale_rotation_translation();
+        //            let new = &prev_frame.animated_transforms[bone_index];
+        //            let (new_scale, new_qrot, new_translation) = new.to_scale_rotation_translation();
 
-                    let scale = 0.8 + 0.05*frame_num;
-                    let lerp_scale = base_scale.lerp(new_scale, scale);
-                    let slerp_qrot = base_qrot.slerp(new_qrot, scale);
-                    let lerp_translation = base_translation.lerp(new_translation, scale);
+        //            let scale = 0.8 + 0.05*frame_num;
+        //            let lerp_scale = base_scale.lerp(new_scale, scale);
+        //            let slerp_qrot = base_qrot.slerp(new_qrot, scale);
+        //            let lerp_translation = base_translation.lerp(new_translation, scale);
 
-                    prev_frame.animated_transforms[bone_index] = 
-                        Mat4::from_scale_rotation_translation(lerp_scale, slerp_qrot, lerp_translation);
-                }
-            } 
-        }
+        //            prev_frame.animated_transforms[bone_index] = 
+        //                Mat4::from_scale_rotation_translation(lerp_scale, slerp_qrot, lerp_translation);
+        //        }
+        //    } 
+        //}
 
         if remove_animation_translation {
             // Remove translation from root jobj.

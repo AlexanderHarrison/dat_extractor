@@ -46,7 +46,10 @@ impl<'a> EffectTable<'a> {
         for i in 0..count {
             // Melee/Ef/SBM_EffectTable.cs (SBM_EffectModel)
             let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * i, 0x14);
-            let jobj = JOBJ::new(model_struct.get_reference(0x04));
+            let jobj = match model_struct.try_get_reference(0x04) {
+                Some(j) => JOBJ::new(j),
+                None => continue,
+            };
             let model = extract_model_from_jobj(jobj, None).unwrap();
 
             // joint anim

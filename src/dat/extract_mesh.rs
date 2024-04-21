@@ -1,7 +1,7 @@
 use crate::dat::{
     HSDStruct, HSDRawFile, JOBJ, HighPolyBoneIndicies, DatExtractError, 
     textures::{try_decode_texture, Texture},
-    Animation, parse_joint_anim, anim_flags,
+    Animation, parse_joint_anim,
 };
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
@@ -313,9 +313,9 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
                 let model = extract_model_from_jobj(m.root_jobj(), None).unwrap();
                 let mut joint_animations = m.joint_animations();
 
-                // HACK
+                //// HACK
                 for anim in joint_animations.iter_mut() {
-                    anim.flags |= anim_flags::LOOP
+                    anim.flags |= super::anim_flags::LOOP
                 }
                 StageSection { model, joint_animations }
             })

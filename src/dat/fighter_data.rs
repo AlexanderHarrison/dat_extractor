@@ -1,17 +1,25 @@
 use crate::dat::{
     HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, parse_joint_anim,
-    HSDRawFile, Animation, extract_anims, extract_character_model,
+    HSDRawFile, Animation, extract_anim_from_action, extract_character_model,
 };
 use crate::parse_string;
 
 #[derive(Debug, Clone)]
 pub struct FighterData {
     pub character_name: Box<str>,
-    pub animations: Box<[Animation]>,
     pub model: Model,
 
     pub attributes: FighterAttributes,
     pub articles: Box<[Article]>,
+    pub action_table: Box<[FighterAction]>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FighterAction {
+    pub name: Option<Box<str>>,
+    pub animation: Option<Animation>,
+    pub subactions: Option<Box<[u8]>>,
+    pub flags: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -19,13 +27,6 @@ pub struct FighterAttributes {
     pub shield_bone: u16,
     pub item_hold_bone: u16,
     pub shield_size: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct FighterAction {
-    pub name: Option<Box<str>>,        // get => _s.GetReference<HSD_String>(0x00);
-    pub animation_offset: usize, // get => _s.GetInt32(0x04)
-    pub animation_size: usize, // get => _s.GetInt32(0x08);
 }
 
 // SBM_FighterData.cs
@@ -168,22 +169,17 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
-
-    let actions = parse_actions(&fighter_hsdfile)?;
-    let animations = extract_anims(anim_dat, actions).ok()?;
-
+    let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
-
     let articles = fighter_data_root.articles()?;
 
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
-        animations,
         model,
-
         attributes,
         articles,
+        action_table,
     })
 }
 
@@ -219,7 +215,7 @@ pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> HighPoly
     }
 }
 
-pub fn parse_actions(fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {
+pub fn parse_actions(anim_dat: &DatFile, fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {
     let mut actions = Vec::new();
 
     let fighter_root = &fighter_hsd.roots[0];
@@ -229,26 +225,29 @@ pub fn parse_actions(fighter_hsd: &HSDRawFile) -> Option<Box<[FighterAction]>> {
 
     for i in 0..(action_table_struct.len() / 0x18) {
         let s = action_table_struct.get_embedded_struct(i * 0x18, 0x18);
-        let action = parse_fighter_action(s)?;
+        let action = parse_fighter_action(anim_dat, s);
         actions.push(action);
     }
 
     Some(actions.into_boxed_slice())
 }
 
-fn parse_fighter_action(hsd_struct: HSDStruct) -> Option<FighterAction> {
-    let name = if let Some(str_buffer) = hsd_struct.try_get_buffer(0x00) {
-        Some(parse_string(str_buffer)?.to_string().into_boxed_str())
-    } else {
-        None
-    };
+fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAction {
+    let name = hsd_struct.try_get_buffer(0x00)
+        .and_then(|s| Some(parse_string(s)?.to_string().into_boxed_str()));
 
-    let animation_offset = hsd_struct.get_i32(0x04) as usize;
-    let animation_size = hsd_struct.get_i32(0x08) as usize;
+    let animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
+    let subactions = hsd_struct.try_get_reference(0x0C).map(|s| parse_subactions(s));
+    let flags = hsd_struct.get_u32(0x10);
 
-    Some(FighterAction {
+    FighterAction {
         name,
-        animation_offset,
-        animation_size,
-    })
+        animation,
+        subactions,
+        flags
+    }
+}
+
+fn parse_subactions(subactions: HSDStruct) -> Box<[u8]> {
+    subactions.data.to_vec().into()
 }

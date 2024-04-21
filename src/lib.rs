@@ -206,10 +206,26 @@ pub const fn character_data_filename(character: Character) -> &'static str {
 
 pub const fn character_effect_filename(character: Character) -> Option<&'static str> {
     Some(match character {
-        Character::Fox   => "EfFxData.dat",
-        Character::Marth => "PlMsData.dat",
-        Character::Peach => "PlPeData.dat",
-        _ => panic!("probably need to implement more characters in dat_tools::character_effect_filename") 
+        Character::Luigi         => "EfLgData.dat",
+        Character::Samus         => "EfSsData.dat",
+        Character::Link          => "EfLkData.dat",
+        Character::Fox           => "EfFxData.dat",
+        Character::Bowser        => "EfKpData.dat",
+        Character::Ganondorf     => "EfGnData.dat",
+        Character::Pikachu       => "EfPkData.dat",
+        Character::Yoshi         => "EfYsData.dat",
+        Character::Mario         => "EfMrData.dat",
+        Character::DonkeyKong    => "EfDkData.dat",
+        Character::Roy           => "EfFeData.dat",
+        Character::Marth         => "EfMsData.dat",
+        Character::Mewtwo        => "EfMtData.dat",
+        Character::Jigglypuff    => "EfPrData.dat",
+        Character::Zelda         => "EfZdData.dat",
+        Character::Peach         => "EfPeData.dat",
+        Character::Kirby         => "EfKbData.dat",
+        Character::Ness          => "EfNsData.dat",
+        Character::CaptainFalcon => "EfCaData.dat",
+        _ => return None,
     })
 }
 
