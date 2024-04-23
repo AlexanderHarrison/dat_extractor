@@ -313,7 +313,7 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
                 let model = extract_model_from_jobj(m.root_jobj(), None).unwrap();
                 let mut joint_animations = m.joint_animations();
 
-                //// HACK
+                // HACK
                 for anim in joint_animations.iter_mut() {
                     anim.flags |= super::anim_flags::LOOP
                 }

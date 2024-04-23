@@ -18,7 +18,7 @@ pub struct FighterData {
 pub struct FighterAction {
     pub name: Option<Box<str>>,
     pub animation: Option<Animation>,
-    pub subactions: Option<Box<[u8]>>,
+    pub subactions: Option<Box<[u32]>>,
     pub flags: u32,
 }
 
@@ -237,7 +237,15 @@ fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAct
         .and_then(|s| Some(parse_string(s)?.to_string().into_boxed_str()));
 
     let animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
-    let subactions = hsd_struct.try_get_reference(0x0C).map(|s| parse_subactions(s));
+    let subactions = hsd_struct
+        .try_get_reference(0x0C)
+        .map(|sub| {
+            sub.data
+                .chunks_exact(4)
+                .map(|b| u32::from_be_bytes(b.try_into().unwrap()))
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        });
     let flags = hsd_struct.get_u32(0x10);
 
     FighterAction {
@@ -248,6 +256,562 @@ fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAct
     }
 }
 
-fn parse_subactions(subactions: HSDStruct) -> Box<[u8]> {
-    subactions.data.to_vec().into()
+#[derive(Debug, Clone)]
+pub enum Subaction {
+    EndofScript,
+    SynchronousTimer {
+        frame: u32,
+    },
+    AsynchronousTimer {
+        frame: u32,
+    },
+    SetLoop {
+        loop_count: u32,
+    },
+    ExecuteLoop,
+    Subroutine {
+        pointer: u32,
+    },
+    Return,
+    GoTo {
+        pointer: u32,
+    },
+    SetLoopAnimationTimer,
+    Unknown0x09 {
+        unknown: u32,
+    },
+    GraphicEffect {
+        bone_id: u8,
+        use_common_bone_id: bool,
+        destroy_on_state_change: bool,
+        use_unknown_bone_id: bool,
+        unknown: u16,
+        graphic_id: u16,
+        unknown_bone_id: u16,
+        z_offset: i16,
+        y_offset: i16,
+        x_offset: i16,
+        z_range: u16,
+        y_range: u16,
+        x_range: u16,
+    },
+    CreateHitbox {
+        hitbox_id: u8,
+        bone_attachment: u8,
+        damage: u16,
+        size: u16,
+        z_offset: i16,
+        y_offset: i16,
+        x_offset: i16,
+        knockback_angle: u16,
+        knockback_growth: u16,
+        weight_dependent_set_knockback: u16,
+        hitbox_interaction: u8,
+        base_knockback: u16,
+        element: u8,
+        unknown: bool,
+        shield_damage: u8,
+        sound_effect: u8,
+        hit_grounded_opponents: bool,
+        hit_airborne_opponents: bool,
+    },
+    AdjustHitboxDamage {
+        hitbox_id: u8,
+        damage: u32,
+    },
+    AdjustHitboxSize {
+        hitbox_id: u8,
+        newsize: u32,
+    },
+    SetHitboxInteraction {
+        hitbox_id: u32,
+        interact_type: bool,
+        can_interact: bool,
+    },
+    RemoveHitbox,
+    ClearHitboxes,
+    SoundEffect {
+        unknown_1: u32,
+        unknown_2: u8,
+        sound_effect_id: u32,
+        offset: u32,
+    },
+    RandomSmashSFX {
+        unknown: u32,
+    },
+    AutoCancel {
+        flags: u8,
+    },
+    ReverseDirection,
+    Unknown0x15 {
+        unknown: u32,
+    },
+    Unknown0x16 {
+        unknown: u32,
+    },
+    AllowInterrupt {
+        unknown: u32,
+    },
+    ProjectileFlag {
+        unknown: u32,
+    },
+    SetJumpState {
+        value: u32,
+    },
+    SetBodyCollisionState {
+        body_state: u8,
+    },
+    BodyCollisionStatus,
+    SetBoneCollisionState {
+        bone_id: u8,
+        collision_state: u32,
+    },
+    EnableJabFollowUp {
+        unknown: u32,
+    },
+    ToggleJabFollowUp,
+    ChangeModelState {
+        struct_id: u8,
+        object_id: u8,
+    },
+    RevertModels,
+    RemoveModels,
+    Throw {
+        throw_type: u8,
+        damage: u16,
+        angle: u16,
+        knock_back_growth: u16,
+        weight_dependent_set_knockback: u16,
+        base_knockback: u16,
+        element: u8,
+        sfx_severity: u8,
+        sfx_kind: u8,
+    },
+    HeldItemInvisibility {
+        flag: bool,
+    },
+    BodyArticleInvisibility {
+        flag: bool,
+    },
+    CharacterInvisibility {
+        flag: bool,
+    },
+    PseudoRandomSoundEffect {
+        unknown:  [u8; 0x1b],
+    },
+    Unknown0x27 {
+        unknown: [u8; 0x0a],
+    },
+    AnimateTexture {
+        material_flag: bool,
+        material_index: u8,
+        frame_flags: u8,
+        frame: u16,
+    },
+    AnimateModel {
+        body_part: u16,
+        state: u8,
+        unknown: u16,
+    },
+    Unknown0x2A {
+        unknown: u32,
+    },
+    Rumble {
+        unknown_flag: bool,
+        unknown_value_1: u16,
+        unknown_value_2: u16,
+    },
+    Unknown0x2C {
+        flag: bool,
+    },
+    Unknown0x2D {
+        unknown: [u8; 0x0b],
+    },
+    BodyAura {
+        aura_id: u8,
+        duration: u32,
+    },
+    RemoveColorOverlay {
+        unknown: u32,
+    },
+    Unknown0x30 {
+        unknown: u32,
+    },
+    SwordTrail {
+        use_beamsword_trail: bool,
+        render_status: u8,
+    },
+    EnableRagdollPhysics {
+        bone_id: u32,
+    },
+    SelfDamage {
+        damage: u16,
+    },
+    ContinuationControl {
+        unknown: u32,
+    },
+    FootsnapBehavior {
+        flags: u32,
+    },
+    FootstepEffect {
+        unknown: [u8; 0x0b],
+    },
+    LandingEffect {
+        unknown: [u8; 0x0b],
+    },
+    StartSmashCharge {
+        charge_frames: u8,
+        charge_rate: u16,
+        visual_effect: u8,
+    },
+    Unknown0x39 {
+        unknown: u32,
+    },
+    AestheticWindEffect {
+        unknown: [u8; 0x0a],
+    },
+    Unknown0x3b {
+        unknown: u32,
+    },
 }
+
+// top 6 bits are always taken by command byte.
+// https://github.com/DRGN-DRC/Melee-Modding-Wizard/blob/acfac9408b71b0575131d7ac7c8e284f849243dd/FileSystem/charFiles.py
+pub fn parse_next_subaction(data: &[u32]) {
+    let cmd = data[0] >> 26;
+    use Subaction::*;
+
+    match cmd {
+        0x00 => EndofScript,
+        0x01 => SynchronousTimer {
+            frame                          : data[0] & 0x03_FF_FF_FF,
+        },
+        0x02 => AsynchronousTimer {
+            frame                          : data[0] & 0x03_FF_FF_FF,
+        },
+        0x03 => SetLoop {
+            loop_count                     : data[0] & 0x03_FF_FF_FF,
+        },
+        0x04 => ExecuteLoop,
+        0x05 => Subroutine {
+            pointer                        : data[1],
+        },
+        0x06 => Return,
+        0x07 => GoTo {
+            pointer                        : data[1],
+        },
+        0x08 => SetLoopAnimationTimer,
+        0x09 => Unknown0x09 {
+            unknown                        : data[0],
+        },
+        0x0A => GraphicEffect {
+            bone_id                        : ((data[0] >> 18) & 0xFF) as u8,
+            use_common_bone_id             : (data[0] >> 17) & 0b1 == 1,
+            destroy_on_state_change        : (data[0] >> 16) & 0b1 == 1,
+            use_unknown_bone_id            : (data[0] >> 15) & 0b1 == 1,
+            unknown                        : (data[0] & 0x7F_FF) as u16,
+            graphic_id                     : (data[1] >> 16    ) as u16,
+            unknown_bone_id                : (data[1] & 0xFF_FF) as u16,
+            z_offset                       : (data[2] >> 16    ) as i16,
+            y_offset                       : (data[2] & 0xFF_FF) as i16,
+            x_offset                       : (data[3] >> 16    ) as i16,
+            z_range                        : (data[3] & 0xFF_FF) as u16,
+            y_range                        : (data[4] >> 16    ) as u16,
+            x_range                        : (data[4] & 0xFF_FF) as u16,
+        },
+        0x0B => CreateHitbox {
+            hitbox_id                      : ((data[0] >> 23) & 0x07) as u8,
+            bone_attachment                : ((data[0] >> 11) & 0x7F) as u8,
+            damage                         : (data[0] & 0x1_FF) as u16,
+            size                           : (data[1] >> 16    ) as u16,
+            z_offset                       : (data[1] & 0xFF_FF) as i16,
+            y_offset                       : (data[2] >> 16    ) as i16,
+            x_offset                       : (data[2] & 0xFF_FF) as i16,
+            knockback_angle                : ((data[3] >> 23) & 0x1_FF) as u16,
+            knockback_growth               : ((data[3] >> 14) & 0x1_FF) as u16,
+            weight_dependent_set_knockback : ((data[3] >> 5) & 0x1_FF) as u16,
+            hitbox_interaction             : (data[3] & 0x03) as u8,
+            base_knockback                 : ((data[4] >> 23) & 0x1_FF) as u16,
+            element                        : ((data[4] >> 18) & 0x1F) as u8,
+            unknown                        : (data[4] >> 17) & 0b1 == 1,
+            shield_damage                  : ((data[4] >> 10) & 0x7F_FF) as u8,
+            sound_effect                   : ((data[4] >> 2) & 0xFF) as u8,
+            hit_grounded_opponents         : (data[4] >> 1) & 0x01 == 1,
+            hit_airborne_opponents         : (data[4] >> 0) & 0x01 == 1,
+        },
+        0x0C => AdjustHitboxDamage {
+            hitbox_id                      : ((data[0] >> 23) & 0x07) as u8,
+            damage                         : ((data[0] >> 0) & 0x7F_FF_FF) as u32,
+        },
+        0x0D => AdjustHitboxSize {
+            hitbox_id                      : ((data[0] >> 23) & 0x07) as u8,
+            newsize                        : ((data[0] >> 0) & 0x7F_FF_FF) as u32,
+        },
+        0x0E => SetHitboxInteraction {
+            hitbox_id                      : ((data[0] >> 2) & 0xFF_FF_FF) as u32,
+            interact_type                  : (data[0] >> 1) & 0x01 == 1,
+            can_interact                   : (data[0] >> 0) & 0x01 == 1,
+        },
+        0x0F => RemoveHitbox,
+        0x10 => ClearHitboxes,
+        0x11 => SoundEffect {
+            // weirdness... unknown bytes wrap? dunno what's happening
+            // https://github.com/DRGN-DRC/Melee-Modding-Wizard/blob/acfac9408b71b0575131d7ac7c8e284f849243dd/FileSystem/charFiles.py
+            unknown_1                      : 0,
+            unknown_2                      : 0,
+            sound_effect_id                : ((data[1] >> 0) & 0x0F_FF_FF) as u32,
+            offset                         : data[2],
+        },
+        0x12 => RandomSmashSFX {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x13 => AutoCancel {
+            flags                          : ((data[0] >> 24) & 0x03) as u8,
+        },
+        0x14 => ReverseDirection,
+        0x15 => Unknown0x15 {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x16 => Unknown0x16 {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x17 => AllowInterrupt {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x18 => ProjectileFlag {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x19 => SetJumpState {
+            value                          : data[0] & 0x03_FF_FF_FF,
+        },
+        0x1A => SetBodyCollisionState {
+            body_state                     : (data[0] & 0x03) as u8,
+        },
+        0x1B => BodyCollisionStatus,
+        0x1C => SetBoneCollisionState {
+            bone_id                        : ((data[0] >> 18) & 0xFF) as u8,
+            collision_state                : data[0] & 0x03_FF_FF,
+        },
+        0x1D => EnableJabFollowUp {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x1E => ToggleJabFollowUp,
+        0x1F => ChangeModelState {
+            struct_id                      : ((data[0] >> 20) & 0x3F) as u8,
+            object_id                      : (data[0] & 0xFF) as u8,
+        },
+        0x20 => RevertModels,
+        0x21 => RemoveModels,
+        0x22 => Throw {
+            throw_type                     : ((data[0] >> 23) & 0x03) as u8,
+            damage                         : (data[0] & 0x01_FF) as u16,
+            angle                          : ((data[1] >> 23) & 0x1_FF) as u16,
+            knock_back_growth              : ((data[1] >> 14) & 0x1_FF) as u16,
+            weight_dependent_set_knockback : ((data[1] >> 5) & 0x1_FF) as u16,
+            base_knockback                 : ((data[2] >> 23) & 0x1_FF) as u16,
+            element                        : ((data[2] >> 19) & 0x0F) as u8,
+            sfx_severity                   : ((data[2] >> 16) & 0x07) as u8,
+            sfx_kind                       : ((data[2] >> 12) & 0x0F) as u8,
+        },
+        0x23 => HeldItemInvisibility {
+            flag                           : data[0] & 0x01 == 1,
+        },
+        0x24 => BodyArticleInvisibility {
+            flag                           : data[0] & 0x01 == 1,
+        },
+        0x25 => CharacterInvisibility {
+            flag                           : data[0] & 0x01 == 1,
+        },
+        0x26 => PseudoRandomSoundEffect {
+            // I don't feel like it
+            unknown                        : [0u8; 0x1B],
+        },
+        0x27 => Unknown0x27 {
+            unknown                        : [0u8; 0x0A],
+        },
+        0x28 => AnimateTexture {
+            material_flag                  : (data[0] >> 25) & 0x01 == 1,
+            material_index                 : ((data[0] >> 18) & 0x7F) as u8,
+            frame_flags                    : ((data[0] >> 11) & 0x7F) as u8,
+            frame                          : ((data[0] >> 0) & 0x07_FF) as u16,
+        },
+        0x29 => AnimateModel {
+            body_part                      :((data[0] >> 16) & 0x03_FF) as u16, 
+            state                          : ((data[0] >> 12) & 0x0F) as u8,
+            unknown                        : ((data[0] >> 0) & 0x0F_FF) as u16,
+        },
+        0x2A => Unknown0x2A {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x2B => Rumble {
+            unknown_flag                   : (data[0] >> 25) & 0x01 == 1,
+            unknown_value_1                : ((data[0] >> 13) & 0x0F_FF) as u16,
+            unknown_value_2                : ((data[0] >> 0) & 0x1F_FF) as u16,
+        },
+        0x2C => Unknown0x2C {
+            flag                           : data[0] & 0x01 == 1,
+        },
+        0x2D => Unknown0x2D {
+            // I don't feel like it
+            unknown                        : [0u8; 0x0b],
+        },
+        0x2E => BodyAura {
+            aura_id                        : ((data[0] >> 18) & 0xFF) as u8,
+            duration                       : ((data[0] >> 0) & 0x03_FF_FF) as u32,
+        },
+        0x2F => RemoveColorOverlay {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x30 => Unknown0x30 {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x31 => SwordTrail {
+            use_beamsword_trail            : (data[0] >> 25) & 0x01 == 1,
+            render_status                  : (data[0] & 0xFF) as u8,
+        },
+        0x32 => EnableRagdollPhysics {
+            bone_id                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x33 => SelfDamage {
+            damage                         : (data[0] & 0xFF_FF) as u16,
+        },
+        0x34 => ContinuationControl {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x35 => FootsnapBehavior {
+            flags                          : data[0] & 0x03_FF_FF_FF,
+        },
+        0x36 => FootstepEffect {
+            // I don't feel like it
+            unknown                        : [0u8; 0x0B],
+        },
+        0x37 => LandingEffect {
+            unknown                        : [0u8; 0x0B],
+        },
+        0x38 => StartSmashCharge {
+            charge_frames                  : ((data[0] >> 16) & 0xFF) as u8,
+            charge_rate                    : (data[0] & 0xFF_FF) as u16,
+            visual_effect                  : (data[1] >> 24) as u8,
+        },
+        0x39 => Unknown0x39 {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        0x3A => AestheticWindEffect {
+            // I don't feel like it
+            unknown                        : [0u8; 0x0A],
+        },
+        0x3B => Unknown0x3b {
+            unknown                        : data[0] & 0x03_FF_FF_FF,
+        },
+        _ => panic!("invalid subaction"),
+    };
+}
+
+pub fn subaction_cmd(subaction_word: u32) -> u8 {
+    (subaction_word >> 26) as u8
+}
+
+// number of u32s to pass (includes the command byte)
+pub fn subaction_size(subaction_cmd: u8) -> usize {
+    let packed_len = SUBACTION_SIZE[subaction_cmd as usize / 2] as usize;
+    let shift = (subaction_cmd as usize % 2) * 4;
+    (packed_len >> shift) & 0b1111
+}
+
+/// 1 nibble per subaction.
+/// gives number of 32 bit segments in subaction.
+pub static SUBACTION_SIZE: &'static [u8] = &[
+    0x11,
+    0x11,
+    0x21,
+    0x21,
+    0x11,
+    0x55,
+    0x11,
+    0x11,
+    0x31,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x13,
+    0x11,
+    0x47,
+    0x11,
+    0x11,
+    0x31,
+    0x11,
+    0x11,
+    0x11,
+    0x11,
+    0x33,
+    0x12,
+    0x14,
+];
+
+pub static SUBACTION_NAME: &'static [&'static str] = &[
+    "End of Script",
+    "Synchronous Timer",
+    "Asynchronous Timer",
+    "Set Loop",
+    "Execute Loop",
+    "Subroutine",
+    "Return",
+    "GoTo",
+    "Set Loop Animation Timer",
+    "Unknown 0x09",
+    "Graphic Effect",
+    "Create Hitbox",
+    "Adjust Hitbox Damage",
+    "Adjust Hitbox Size",
+    "Set Hitbox Interaction",
+    "Remove Hitbox",
+    "Clear Hitboxes",
+    "Sound Effect",
+    "Random Smash SFX",
+    "Auto-cancel",
+    "Reverse Direction",
+    "Unknown 0x15",
+    "Unknown 0x16",
+    "Allow Interrupt",
+    "Projectile Flag",
+    "Set Jump State",
+    "Set Body Collision State",
+    "Body Collision Status",
+    "Set Bone Collision State",
+    "Enable Jab Follow-up",
+    "Toggle Jab Follow-up",
+    "Changle Model State",
+    "Revert Models",
+    "Remove Models",
+    "Throw",
+    "Held Item Invisibility",
+    "Body Article Invisibility",
+    "Character Invisibility",
+    "Pseudo-Random Sound Effect",
+    "Unknown 0x27",
+    "Animate Texture",
+    "Animate Model",
+    "Unknown 0x2A",
+    "Rumble",
+    "Unknown 0x2C",
+    "Unknown 0x2D",
+    "Body Aura",
+    "Remove Color Overlay",
+    "Unknown 0x30",
+    "Sword Trail",
+    "Enable Ragdoll Physics",
+    "Self Damage",
+    "Continuation Control",
+    "Footsnap Behavior",
+    "Footstep Effect (SFX+VFX)",
+    "Landing Effect (SFX+VFX)",
+    "Start Smash Charge",
+    "Unknown 0x39",
+    "Aesthetic Wind Effect",
+    "Unknown 0x3B",
+];
