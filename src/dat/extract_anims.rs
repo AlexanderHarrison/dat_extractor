@@ -83,8 +83,6 @@ impl AnimationFrame {
                 None => animated_transform
             };
 
-            //let animated_world_transform = world_transform * animated_transform;
-
             self.animated_world_transforms[i] = animated_world_transform;
             self.animated_world_inv_transforms[i] = animated_world_transform.inverse();
             let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];

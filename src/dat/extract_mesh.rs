@@ -55,6 +55,16 @@ pub struct Vertex {
     pub colour: Vec4,
     //pub colour1: Vec4,
 }
+impl Vertex {
+    pub const ZERO: Vertex = Vertex {
+        pos: Vec3::ZERO,
+        uv: Vec2::ZERO,
+        normal: Vec3::ZERO,
+        weights: Vec4::ZERO,
+        bones: UVec4::ZERO,
+        colour: Vec4::ZERO,
+    };
+}
 
 unsafe impl bytemuck::NoUninit for Vertex {}
 

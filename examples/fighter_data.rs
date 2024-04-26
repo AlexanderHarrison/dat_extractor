@@ -6,13 +6,14 @@ fn main() {
     let fi = dat_tools::get_fighter_data(&mut files, slp_parser::CharacterColour::Marth(slp_parser::character_colours::MarthColour::Red));
     
     for a in fi.unwrap().action_table.iter() {
-        if let Some(ref s) = a.subactions {
-            println!("{:?}", a.name.as_deref());
-            let mut i = 0usize;
-            while i < s.len() {
-                dat_tools::dat::parse_next_subaction(&s[i..]);
-                i += dat_tools::dat::subaction_size(dat_tools::dat::subaction_cmd(s[i])) as usize;
+        if let Some(n) = a.name.as_deref() {
+            if !n.contains("Guard") {
+                continue
             }
-        }
+
+            if let Some(ref s) = a.subactions {
+                println!("{:#?}", dat_tools::dat::parse_subactions(s));
+            }
+        } 
     }
 }

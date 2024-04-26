@@ -256,9 +256,74 @@ fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAct
     }
 }
 
+pub type SubactionCmd = u8;
+pub mod subaction {
+    use super::SubactionCmd;
+    pub const END_OF_SCRIPT             : SubactionCmd = 0x00;
+    pub const SYNCHRONOUS_TIMER         : SubactionCmd = 0x01;
+    pub const ASYNCHRONOUS_TIMER        : SubactionCmd = 0x02;
+    pub const SET_LOOP                  : SubactionCmd = 0x03;
+    pub const EXECUTE_LOOP              : SubactionCmd = 0x04;
+    pub const SUBROUTINE                : SubactionCmd = 0x05;
+    pub const RETURN                    : SubactionCmd = 0x06;
+    pub const GOTO                      : SubactionCmd = 0x07;
+    pub const SET_LOOP_ANIMATION_TIMER  : SubactionCmd = 0x08;
+    pub const UNKNOWN_0X09              : SubactionCmd = 0x09;
+    pub const GRAPHIC_EFFECT            : SubactionCmd = 0x0A;
+    pub const CREATE_HITBOX             : SubactionCmd = 0x0B;
+    pub const ADJUST_HITBOX_DAMAGE      : SubactionCmd = 0x0C;
+    pub const ADJUST_HITBOX_SIZE        : SubactionCmd = 0x0D;
+    pub const SET_HITBOX_INTERACTION    : SubactionCmd = 0x0E;
+    pub const REMOVE_HITBOX             : SubactionCmd = 0x0F;
+    pub const CLEAR_HITBOXES            : SubactionCmd = 0x10;
+    pub const SOUND_EFFECT              : SubactionCmd = 0x11;
+    pub const RANDOM_SMASH_SFX          : SubactionCmd = 0x12;
+    pub const AUTO_CANCEL               : SubactionCmd = 0x13;
+    pub const REVERSE_DIRECTION         : SubactionCmd = 0x14;
+    pub const UNKNOWN_0X15              : SubactionCmd = 0x15;
+    pub const UNKNOWN_0X16              : SubactionCmd = 0x16;
+    pub const ALLOW_INTERRUPT           : SubactionCmd = 0x17;
+    pub const PROJECTILE_FLAG           : SubactionCmd = 0x18;
+    pub const SET_JUMP_STATE            : SubactionCmd = 0x19;
+    pub const SET_BODY_COLLISION_STATE  : SubactionCmd = 0x1A;
+    pub const BODY_COLLISION_STATUS     : SubactionCmd = 0x1B;
+    pub const SET_BONE_COLLISION_STATE  : SubactionCmd = 0x1C;
+    pub const ENABLE_JAB_FOLLOW_UP      : SubactionCmd = 0x1D;
+    pub const TOGGLE_JAB_FOLLOW_UP      : SubactionCmd = 0x1E;
+    pub const CHANGE_MODEL_STATE        : SubactionCmd = 0x1F;
+    pub const REVERT_MODELS             : SubactionCmd = 0x20;
+    pub const REMOVE_MODELS             : SubactionCmd = 0x21;
+    pub const THROW                     : SubactionCmd = 0x22;
+    pub const HELD_ITEM_INVISIBILITY    : SubactionCmd = 0x23;
+    pub const BODY_ARTICLE_INVISIBILITY : SubactionCmd = 0x24;
+    pub const CHARACTER_INVISIBILITY    : SubactionCmd = 0x25;
+    pub const PSEUDO_RANDOM_SOUND_EFFECT: SubactionCmd = 0x26;
+    pub const UNKNOWN_0X27              : SubactionCmd = 0x27;
+    pub const ANIMATE_TEXTURE           : SubactionCmd = 0x28;
+    pub const ANIMATE_MODEL             : SubactionCmd = 0x29;
+    pub const UNKNOWN_0X2A              : SubactionCmd = 0x2A;
+    pub const RUMBLE                    : SubactionCmd = 0x2B;
+    pub const UNKNOWN_0X2C              : SubactionCmd = 0x2C;
+    pub const UNKNOWN_0X2D              : SubactionCmd = 0x2D;
+    pub const BODY_AURA                 : SubactionCmd = 0x2E;
+    pub const REMOVE_COLOR_OVERLAY      : SubactionCmd = 0x2F;
+    pub const UNKNOWN_0X30              : SubactionCmd = 0x30;
+    pub const SWORD_TRAIL               : SubactionCmd = 0x31;
+    pub const ENABLE_RAGDOLL_PHYSICS    : SubactionCmd = 0x32;
+    pub const SELF_DAMAGE               : SubactionCmd = 0x33;
+    pub const CONTINUATION_CONTROL      : SubactionCmd = 0x34;
+    pub const FOOTSNAP_BEHAVIOR         : SubactionCmd = 0x35;
+    pub const FOOTSTEP_EFFECT           : SubactionCmd = 0x36;
+    pub const LANDING_EFFECT            : SubactionCmd = 0x37;
+    pub const START_SMASH_CHARGE        : SubactionCmd = 0x38;
+    pub const UNKNOWN_0X39              : SubactionCmd = 0x39;
+    pub const AESTHETIC_WIND_EFFECT     : SubactionCmd = 0x3A;
+    pub const UNKNOWN_0X3B              : SubactionCmd = 0x3B;
+}
+
 #[derive(Debug, Clone)]
 pub enum Subaction {
-    EndofScript,
+    EndOfScript,
     SynchronousTimer {
         frame: u32,
     },
@@ -475,14 +540,26 @@ pub enum Subaction {
     },
 }
 
+pub fn parse_subactions(data: &[u32]) -> Vec<Subaction> {
+    let mut i = 0;
+    let mut subactions = Vec::new();
+
+    while i < data.len() {
+        subactions.push(parse_next_subaction(&data[i..]));
+        i += subaction_size(subaction_cmd(data[i]));
+    }
+
+    subactions
+}
+
 // top 6 bits are always taken by command byte.
 // https://github.com/DRGN-DRC/Melee-Modding-Wizard/blob/acfac9408b71b0575131d7ac7c8e284f849243dd/FileSystem/charFiles.py
-pub fn parse_next_subaction(data: &[u32]) {
+pub fn parse_next_subaction(data: &[u32]) -> Subaction {
     let cmd = data[0] >> 26;
     use Subaction::*;
 
     match cmd {
-        0x00 => EndofScript,
+        0x00 => EndOfScript,
         0x01 => SynchronousTimer {
             frame                          : data[0] & 0x03_FF_FF_FF,
         },
@@ -704,7 +781,7 @@ pub fn parse_next_subaction(data: &[u32]) {
             unknown                        : data[0] & 0x03_FF_FF_FF,
         },
         _ => panic!("invalid subaction"),
-    };
+    }
 }
 
 pub fn subaction_cmd(subaction_word: u32) -> u8 {
@@ -751,67 +828,4 @@ pub static SUBACTION_SIZE: &'static [u8] = &[
     0x33,
     0x12,
     0x14,
-];
-
-pub static SUBACTION_NAME: &'static [&'static str] = &[
-    "End of Script",
-    "Synchronous Timer",
-    "Asynchronous Timer",
-    "Set Loop",
-    "Execute Loop",
-    "Subroutine",
-    "Return",
-    "GoTo",
-    "Set Loop Animation Timer",
-    "Unknown 0x09",
-    "Graphic Effect",
-    "Create Hitbox",
-    "Adjust Hitbox Damage",
-    "Adjust Hitbox Size",
-    "Set Hitbox Interaction",
-    "Remove Hitbox",
-    "Clear Hitboxes",
-    "Sound Effect",
-    "Random Smash SFX",
-    "Auto-cancel",
-    "Reverse Direction",
-    "Unknown 0x15",
-    "Unknown 0x16",
-    "Allow Interrupt",
-    "Projectile Flag",
-    "Set Jump State",
-    "Set Body Collision State",
-    "Body Collision Status",
-    "Set Bone Collision State",
-    "Enable Jab Follow-up",
-    "Toggle Jab Follow-up",
-    "Changle Model State",
-    "Revert Models",
-    "Remove Models",
-    "Throw",
-    "Held Item Invisibility",
-    "Body Article Invisibility",
-    "Character Invisibility",
-    "Pseudo-Random Sound Effect",
-    "Unknown 0x27",
-    "Animate Texture",
-    "Animate Model",
-    "Unknown 0x2A",
-    "Rumble",
-    "Unknown 0x2C",
-    "Unknown 0x2D",
-    "Body Aura",
-    "Remove Color Overlay",
-    "Unknown 0x30",
-    "Sword Trail",
-    "Enable Ragdoll Physics",
-    "Self Damage",
-    "Continuation Control",
-    "Footsnap Behavior",
-    "Footstep Effect (SFX+VFX)",
-    "Landing Effect (SFX+VFX)",
-    "Start Smash Charge",
-    "Unknown 0x39",
-    "Aesthetic Wind Effect",
-    "Unknown 0x3B",
 ];
