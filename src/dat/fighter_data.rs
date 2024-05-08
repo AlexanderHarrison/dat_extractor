@@ -39,6 +39,7 @@ pub struct FighterDataRoot<'a> {
 #[derive(Debug, Clone)]
 pub struct Article {
     pub model: Option<Model>,
+    pub bone: Option<u32>,
     pub scale: f32,
     pub animations: Option<Box<[Option<Animation>]>>, // TODO unused
 }
@@ -87,12 +88,18 @@ impl<'a> FighterDataRoot<'a> {
                     None => 1.0,
                 };
 
+                let mut bone = None;
+
                 // SBM_ArticlePointer.cs (SBM_ItemModel)
                 if let Some(item_model) = article.try_get_reference(0x10) {
                     if let Some(root_jobj) = item_model.try_get_reference(0x00) {
                         let model_root_jobj = JOBJ::new(root_jobj);
                         model = Some(extract_model_from_jobj(model_root_jobj, None).ok()?);
                     }
+
+                    bone = Some(item_model.get_u32(0x08));
+
+                    // 0x0C usually zero
                 }
 
                 let mut animations = None;
@@ -142,7 +149,7 @@ impl<'a> FighterDataRoot<'a> {
                 //    }
                 //}
 
-                articles.push(Article { model, scale, animations });
+                articles.push(Article { model, scale, animations, bone });
             } else {
                 unused_articles += 1
             }
