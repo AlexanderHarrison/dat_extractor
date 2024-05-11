@@ -118,8 +118,7 @@ impl<'a> FighterDataRoot<'a> {
                         }
 
                         if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
-                            let anim = parse_joint_anim(joint_anim_joint).unwrap();
-                            anim_vec.push(Some(anim));
+                            anim_vec.push(parse_joint_anim(joint_anim_joint));
                         } else {
                             anim_vec.push(None);
                             n += 1;
