@@ -40,6 +40,27 @@ pub fn get_common_model(files: &mut ISODatFiles, model_idx: usize) -> Option<dat
     table.model(model_idx)
 }
 
+pub fn get_common_models(files: &mut ISODatFiles) -> Box<[dat::Model]> {
+    let dat = files.read_file("EfCoData.dat").unwrap();
+    let hsd_ef_dat = dat::HSDRawFile::new(&dat);
+    let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
+    table.models()
+}
+
+pub fn get_common_model_and_animation(files: &mut ISODatFiles, model_idx: usize) -> (dat::Model, Option<dat::Animation>) {
+    let dat = files.read_file("EfCoData.dat").unwrap();
+    let hsd_ef_dat = dat::HSDRawFile::new(&dat);
+    let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
+    table.models_and_animations()[model_idx].clone()
+}
+
+pub fn get_common_models_and_animations(files: &mut ISODatFiles) -> Box<[(dat::Model, Option<dat::Animation>)]> {
+    let dat = files.read_file("EfCoData.dat").unwrap();
+    let hsd_ef_dat = dat::HSDRawFile::new(&dat);
+    let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
+    table.models_and_animations()
+}
+
 // only extracts 24x24 icons (skips master hand, giga bowser)
 // all stock icons are in CI4 format
 pub fn extract_stock_icons(files: &mut ISODatFiles) -> Option<Box<[[u32; 24*24]]>> {

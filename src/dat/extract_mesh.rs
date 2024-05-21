@@ -1,5 +1,5 @@
 use crate::dat::{
-    HSDStruct, HSDRawFile, JOBJ, HighPolyBoneIndicies, DatExtractError, 
+    HSDStruct, HSDRawFile, JOBJ, ModelBoneIndicies, DatExtractError, 
     textures::{try_decode_texture, Texture},
     Animation, parse_joint_anim,
 };
@@ -102,7 +102,7 @@ pub fn extract_character_model<'a>(
 
 pub fn extract_model_from_jobj<'a>(
     root_jobj: JOBJ<'a>, 
-    high_poly_bone_indicies: Option<&HighPolyBoneIndicies> // extracts all if None
+    high_poly_bone_indicies: Option<&ModelBoneIndicies> // extracts all if None
 ) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);

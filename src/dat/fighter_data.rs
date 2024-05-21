@@ -189,12 +189,12 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     })
 }
 
-pub struct HighPolyBoneIndicies {
+pub struct ModelBoneIndicies {
     pub groups: Box<[(u16, u16)]>, // turned into model groups
     pub indicies: Box<[u8]>,
 }
 
-pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> HighPolyBoneIndicies {
+pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBoneIndicies {
     let fighter_root = &fighter_hsd.roots[0];
 
     // SBM_PlayerModelLookupTables
@@ -215,7 +215,7 @@ pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> HighPoly
         }
     }
 
-    HighPolyBoneIndicies {
+    ModelBoneIndicies {
         groups: groups.into_boxed_slice(),
         indicies: indicies.into_boxed_slice(),
     }
