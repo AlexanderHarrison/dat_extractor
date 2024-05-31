@@ -47,14 +47,14 @@ pub fn get_common_models(files: &mut ISODatFiles) -> Box<[dat::Model]> {
     table.models()
 }
 
-pub fn get_common_model_and_animation(files: &mut ISODatFiles, model_idx: usize) -> (dat::Model, Option<dat::Animation>) {
+pub fn get_common_model_and_animation(files: &mut ISODatFiles, model_idx: usize) -> (dat::Model, dat::Animation) {
     let dat = files.read_file("EfCoData.dat").unwrap();
     let hsd_ef_dat = dat::HSDRawFile::new(&dat);
     let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
     table.models_and_animations()[model_idx].clone()
 }
 
-pub fn get_common_models_and_animations(files: &mut ISODatFiles) -> Box<[(dat::Model, Option<dat::Animation>)]> {
+pub fn get_common_models_and_animations(files: &mut ISODatFiles) -> Box<[(dat::Model, dat::Animation)]> {
     let dat = files.read_file("EfCoData.dat").unwrap();
     let hsd_ef_dat = dat::HSDRawFile::new(&dat);
     let table = dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());

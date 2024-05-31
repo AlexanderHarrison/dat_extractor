@@ -38,6 +38,47 @@ pub enum WrapMode {
     Mirror,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct Phong {
+    pub ambient: [u8; 4],
+    pub diffuse: [u8; 4],
+    pub specular: [u8; 4],
+}
+
+impl Default for Phong {
+    fn default() -> Self {
+        Phong {
+            ambient: [200u8; 4],
+            diffuse: [30u8; 4],
+            specular: [25u8; 4],
+        }
+    }
+}
+
+impl From<Phong> for PhongF32 {
+    fn from(p: Phong) -> Self {
+        PhongF32 {
+            ambient: p.ambient.map(|a| a as f32 / 255.0),
+            diffuse: p.diffuse.map(|a| a as f32 / 255.0),
+            specular: p.specular.map(|a| a as f32 / 255.0),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct PhongF32 {
+    pub ambient: [f32; 4],
+    pub diffuse: [f32; 4],
+    pub specular: [f32; 4],
+}
+
+impl Default for PhongF32 {
+    fn default() -> Self { Phong::default().into() }
+}
+
+unsafe impl bytemuck::NoUninit for PhongF32 {}
+
 // GX/Enums.cs:122 (GXTexFmt)
 #[derive(Copy, Clone, Debug)]
 pub enum InternalTextureFormat {
@@ -81,16 +122,18 @@ pub fn try_decode_texture<'a>(
     let data_ptr = tobj.image_buffer()?.as_ptr();
 
     use std::collections::hash_map::Entry;
-    match cache.entry(data_ptr) {
-        Entry::Occupied(entry) => Some(*entry.get()),
+    let id = match cache.entry(data_ptr) {
+        Entry::Occupied(entry) => *entry.get(),
         Entry::Vacant(entry) => {
             let texture = tobj.texture().unwrap();
             let texture_idx = textures.len() as _;
             textures.push(texture);
             entry.insert(texture_idx);
-            Some(texture_idx)
+            texture_idx
         }
-    }
+    };
+
+    Some(id)
 }
 
 impl<'a> TOBJ<'a> {
@@ -234,6 +277,36 @@ impl<'a> MOBJ<'a> {
     pub fn get_tobj(&self) -> Option<TOBJ<'a>> {
         self.hsd_struct.try_get_reference(0x08)
             .map(TOBJ::new)
+    }
+
+    pub fn get_material(&self) -> Option<HSDStruct<'a>> {
+        self.hsd_struct.try_get_reference(0x0C)
+    }
+
+    pub fn get_phong(&self) -> Phong {
+        match self.get_material() {
+            None => Phong::default(),
+            Some(mat) => Phong {
+                ambient: [
+                    mat.get_u8(0),
+                    mat.get_u8(1),
+                    mat.get_u8(2),
+                    mat.get_u8(3),
+                ],
+                diffuse: [
+                    mat.get_u8(4),
+                    mat.get_u8(5),
+                    mat.get_u8(6),
+                    mat.get_u8(7),
+                ],
+                specular: [
+                    mat.get_u8(8),
+                    mat.get_u8(9),
+                    mat.get_u8(10),
+                    mat.get_u8(11),
+                ],
+            }
+        }
     }
 }
 

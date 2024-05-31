@@ -20,6 +20,10 @@ pub struct AnimationFrame {
     
     pub animated_world_inv_transforms: Box<[Mat4]>,
     pub animated_bind_inv_transforms: Box<[Mat4]>,
+
+    // one for each dobj
+    pub phongs: Box<[PhongF32]>,
+    pub tex_transforms: Box<[TexTransform]>,
 }
 
 impl AnimationFrame {
@@ -30,6 +34,10 @@ impl AnimationFrame {
         let mut animated_bind_transforms = Vec::with_capacity(bone_len);
         let mut animated_world_inv_transforms = Vec::with_capacity(bone_len);
         let mut animated_bind_inv_transforms = Vec::with_capacity(bone_len);
+
+        // same length (# of dobj/primitive groups)
+        let phongs: Vec<PhongF32> = model.phongs.iter().map(|&p| p.into()).collect();
+        let tex_transforms = vec![TexTransform::default(); model.primitive_groups.len()];
 
         for (i, base_transform) in model.base_transforms.iter().enumerate() {
             let world_transform = match model.bones[i].parent {
@@ -50,6 +58,8 @@ impl AnimationFrame {
             animated_bind_transforms: animated_bind_transforms.into_boxed_slice(),
             animated_world_inv_transforms: animated_world_inv_transforms.into_boxed_slice(),
             animated_bind_inv_transforms: animated_bind_inv_transforms.into_boxed_slice(),
+            phongs: phongs.into_boxed_slice(),
+            tex_transforms: tex_transforms.into_boxed_slice(),
         }
     }
 
@@ -70,8 +80,13 @@ impl AnimationFrame {
         }
     }
 
-    pub fn custom(&mut self, model: &Model, updates: &[(u32, Mat4)]) {
-        for (bone, mat) in updates.iter().copied() {
+    pub fn custom(
+        &mut self, 
+        model: &Model, 
+        joint_updates: &[(u32, Mat4)],
+        tex_updates: &[(u32, TexTransform)],
+    ) {
+        for (bone, mat) in joint_updates.iter().copied() {
             let bone = bone as usize;
             self.animated_transforms[bone] = mat;
         }
@@ -88,6 +103,11 @@ impl AnimationFrame {
             let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
             self.animated_bind_transforms[i] = animated_bind_transform;
             self.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
+        }
+
+        for (dobj, transform) in tex_updates.iter().copied() {
+            let dobj = dobj as usize;
+            self.tex_transforms[dobj] = transform;
         }
     }
 
@@ -183,23 +203,41 @@ pub mod anim_flags {
     pub const LOOP: AnimFlags = 1 << 29;
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Animation {
-    pub transforms: Box<[AnimTransform]>,
+    pub bone_transforms: Vec<AnimTransformBone>,
+    pub material_transforms: Vec<AnimTransformMaterial>,
     pub end_frame: f32,
     pub flags: AnimFlags,
 }
 
 #[derive(Clone, Debug)]
-pub struct AnimTransform {
-    pub tracks: Box<[AnimTrack]>,
+pub struct AnimTransformBone {
+    pub tracks: Box<[AnimTrack<TrackTypeBone>]>,
     pub bone_index: usize,
 }
 
 #[derive(Clone, Debug)]
-pub struct AnimTrack {
+pub struct AnimTransformMaterial {
+    pub material_tracks: Box<[AnimTrack<TrackTypeMaterial>]>,
+    pub texture_tracks: Box<[AnimTrack<TrackTypeTexture>]>,
+    pub dobj_index: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct AnimTransformTexture {
+    pub tracks: Box<[AnimTrack<TrackTypeTexture>]>,
+    pub texture_index: usize,
+}
+
+pub trait TrackType: Copy + Clone + Sized + std::fmt::Debug {
+    fn from_u8(n: u8) -> Option<Self>;
+}
+
+#[derive(Clone, Debug)]
+pub struct AnimTrack<T: TrackType> {
     pub start_frame: f32,
-    pub track_type: TrackType,
+    pub track_type: T,
     pub keys: Box<[Key]>,
 }
 
@@ -259,12 +297,61 @@ pub enum InterpolationType {
     Step
 }
 
+pub fn parse_mat_anim(
+    prev: &mut Animation,
+    mat_anim_joint: HSDStruct<'_>
+) {
+    //let mut flags = 0;
+    //let mut end_frame = 0.0;
+
+    // HSD_MatAnimJoint
+    let mut dobj_index = 0;
+    for mat_anim_joint in mat_anim_joint.iter_joint_tree(0x00, 0x04) {
+        let mat_anim = match mat_anim_joint.try_get_reference(0x08) {
+            Some(mat_anim) => mat_anim,
+            None => continue,
+        };
+        
+        for mat_anim in mat_anim.iter_joint_list(0x00) {
+            let mut material_tracks: Box<[AnimTrack<_>]> = Box::new([]);
+            let mut texture_tracks: Box<[AnimTrack<_>]> = Box::new([]);
+
+            // mat anim
+            if let Some(aobj) = mat_anim.try_get_reference(0x04) {
+                material_tracks = parse_aobj::<TrackTypeMaterial>(aobj);
+            };
+
+            // tex anim
+            if let Some(tex_anim) = mat_anim.try_get_reference(0x08) {
+                // ignore tex anims for other textures for now
+                //
+                // for tex_anim in tex_anim.iter_joint_list(0x00) {
+                    if let Some(aobj) = tex_anim.try_get_reference(0x08) {
+                        texture_tracks = parse_aobj::<TrackTypeTexture>(aobj);
+                    }
+                // }
+            }
+
+            if material_tracks.len() + texture_tracks.len() != 0 {
+                prev.material_transforms.push(AnimTransformMaterial { 
+                    material_tracks, 
+                    texture_tracks,
+                    dobj_index,
+                });
+            }
+
+            dobj_index += 1;
+        }
+    }
+}
+
 /// HSD_AnimJoint -> Animation
-pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
-    let mut joint_anims: Vec<AnimTransform> = Vec::new();
-    
-    let mut flags = 0;
-    let mut end_frame = 0.0;
+pub fn parse_joint_anim(
+    prev: &mut Animation,
+    joint_anim_joint: HSDStruct<'_>
+) {
+    //let mut flags = 0;
+    //let mut end_frame = 0.0;
 
     // HSD_AnimJoint
     for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
@@ -275,106 +362,37 @@ pub fn parse_joint_anim(joint_anim_joint: HSDStruct<'_>) -> Option<Animation> {
 
         // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
         // not sure how to handle if this isn't the case. hopefully it's fine
-        let new_flags = aobj.get_u32(0x00);
-        assert!(flags == 0 || flags == new_flags);
-        flags = new_flags;
-        
-        let new_end_frame = aobj.get_f32(0x04);
-        assert!(end_frame == 0.0 || end_frame == new_end_frame);
-        end_frame = new_end_frame;
+        //
+        // update: commented out for now (should rethink flags and stuff)
+        //let new_flags = aobj.get_u32(0x00);
+        //assert!(flags == 0 || flags == new_flags);
+        //flags = new_flags;
+        //
+        //let new_end_frame = aobj.get_f32(0x04);
+        //assert!(end_frame == 0.0 || end_frame == new_end_frame);
+        //end_frame = new_end_frame;
 
-        let fobj_desc = aobj.get_reference(0x08);
-
-        let mut tracks = Vec::new();
-
-        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
-            let track_type = match TrackType::from_u8(fobj_desc.get_u8(0x0C)) {
-                Some(t) => t,
-                None => {
-                    eprintln!("no track type");
-                    continue;
-                }
-            };
-            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
-                continue;
-            }
-
-            let track = decode_anim_data(fobj_desc_data(&fobj_desc));
-            tracks.push(track);
-        }
-
-        joint_anims.push(AnimTransform {
-            tracks: tracks.into_boxed_slice(),
+        prev.bone_transforms.push(AnimTransformBone {
+            tracks: parse_aobj::<TrackTypeBone>(aobj),
             bone_index: i,
-        });
-    }
-
-    if joint_anims.len() == 0 {
-        None
-    } else {
-        Some(Animation {
-            transforms: joint_anims.into_boxed_slice(),
-            end_frame,
-            flags,
         })
     }
 }
 
-// TODO
-/// HSD_MatAnimJoint -> Animation
-//pub fn parse_material_anim(material_anim_joint: HSDStruct<'_>) -> Option<Animation> {
-//    let mut joint_anims: Vec<AnimTransform> = Vec::new();
-//    
-//    let mut flags = 0;
-//    let mut end_frame = 0.0;
-//
-//    // HSD_AnimJoint
-//    for (i, joint_anim_joint) in joint_anim_joint.iter_joint_tree(0x00, 0x04).enumerate() {
-//        let aobj = match joint_anim_joint.try_get_reference(0x08) {
-//            Some(aobj) => aobj,
-//            None => continue,
-//        };
-//
-//        // anim data are expanded to full animation, so make sure it doesn't have different start/end frames, flags, etc.
-//        // not sure how to handle if this isn't the case. hopefully it's fine
-//        let new_flags = aobj.get_u32(0x00);
-//        assert!(flags == 0 || flags == new_flags);
-//        flags = new_flags;
-//        
-//        let new_end_frame = aobj.get_f32(0x04);
-//        assert!(end_frame == 0.0 || end_frame == new_end_frame);
-//        end_frame = new_end_frame;
-//
-//        let fobj_desc = aobj.get_reference(0x08);
-//
-//        let mut tracks = Vec::new();
-//
-//        for fobj_desc in fobj_desc.iter_joint_list(0x00) {
-//            let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
-//            if track_type == TrackType::PTCL || track_type == TrackType::BRANCH {
-//                continue;
-//            }
-//
-//            let track = decode_anim_data(fobj_desc_data(&fobj_desc));
-//            tracks.push(track);
-//        }
-//
-//        joint_anims.push(AnimTransform {
-//            tracks: tracks.into_boxed_slice(),
-//            bone_index: i,
-//        });
-//    }
-//
-//    if joint_anims.len() == 0 {
-//        None
-//    } else {
-//        Some(Animation {
-//            transforms: joint_anims.into_boxed_slice(),
-//            end_frame,
-//            flags,
-//        })
-//    }
-//}
+fn parse_aobj<T: TrackType>(aobj: HSDStruct) -> Box<[AnimTrack<T>]> {
+    let fobj_desc = aobj.get_reference(0x08);
+
+    let mut tracks = Vec::new();
+
+    for fobj_desc in fobj_desc.iter_joint_list(0x00) {
+        if let Some(fobj_desc_data) = fobj_desc_data::<T>(&fobj_desc) {
+            let track = decode_anim_data::<T>(fobj_desc_data);
+            tracks.push(track);
+        }
+    }
+
+    tracks.into_boxed_slice()
+}
 
 //pub fn extract_anims_from_actions(
 //    aj_dat: &DatFile,
@@ -432,7 +450,8 @@ pub fn extract_anim_from_action(
     let frame_count = figatree.frame_count();
 
     Some(Animation {
-        transforms: extract_anim_transforms(figatree),
+        bone_transforms: extract_figatree_transforms(figatree),
+        material_transforms: Vec::new(),
         end_frame: frame_count,
         flags: 0,
     })
@@ -446,12 +465,14 @@ impl Animation {
         model: &Model,
         remove_animation_translation: bool,
     ) {
-        for transform in self.transforms.iter() {
+        for transform in self.bone_transforms.iter() {
             let bone_index = transform.bone_index;
-            let base = &model.base_transforms[bone_index];
-            prev_frame.animated_transforms[bone_index] = transform.compute_transform_at(frame_num, base);
+            let base_transform = &model.base_transforms[bone_index];
+            let f = transform.compute_frame_at(frame_num, base_transform);
+            prev_frame.animated_transforms[bone_index] = f.transform;
         }
 
+        //// failed attempt at interpolation
         //if let Some(end_frame) = prev_end_frame {
         //    if frames_in_anim <= 3 {
         //        for transform in self.transforms.iter() {
@@ -492,23 +513,62 @@ impl Animation {
             prev_frame.animated_bind_transforms[i] = animated_bind_transform;
             prev_frame.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
         }
+
+        for transform in self.material_transforms.iter() {
+            let dobj_index = transform.dobj_index;
+            let base_phong = model.phongs[dobj_index];
+            let animated_material = transform.compute_frame_at(frame_num, base_phong);
+            prev_frame.phongs[dobj_index] = animated_material.phong;
+            prev_frame.tex_transforms[dobj_index] = animated_material.tex_transform;
+        }
     }
 }
 
-impl AnimTransform {
-    // SBTransformAnimation.cs:86 (GetTransformAt)
-    pub fn compute_transform_at(&self, frame: f32, base_transform: &Mat4) -> Mat4 {
-        // TODO RotationOnly ????????? (SBAnimation.cs:80)
+#[derive(Copy, Clone, Debug)]
+pub struct AnimTransformBoneFrame {
+    pub transform: Mat4,
+}
 
+#[derive(Copy, Clone, Debug)]
+pub struct AnimTransformMaterialFrame {
+    pub phong: PhongF32,
+    pub tex_transform: TexTransform,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct TexTransform {
+    pub konst_colour: [f32; 4], // idk
+    pub tex_colour: [f32; 4],
+}
+
+impl Default for TexTransform {
+    fn default() -> Self {
+        TexTransform {
+            konst_colour: [0.0; 4],
+            tex_colour: [1.0; 4],
+        }
+    }
+}
+
+unsafe impl bytemuck::NoUninit for TexTransform {}
+
+impl AnimTransformBone {
+    pub fn compute_frame_at(
+        &self, 
+        frame: f32, 
+        base_transform: &Mat4,
+    ) -> AnimTransformBoneFrame {
         let (mut scale, qrot, mut translation) = base_transform.to_scale_rotation_translation();
         let (rz, ry, rx) = qrot.to_euler(glam::EulerRot::ZYX);
         let mut euler_rotation = Vec3 { x: rx, y: ry, z: rz };
 
-        use TrackType::*;
+        use TrackTypeBone::*;
         for track in self.tracks.iter() {
             let val: f32 = track.get_value(frame + track.start_frame);
 
             match track.track_type {
+                // joint
                 RotateX => euler_rotation.x = val,
                 RotateY => euler_rotation.y = val,
                 RotateZ => euler_rotation.z = val,
@@ -518,7 +578,6 @@ impl AnimTransform {
                 ScaleX => scale.x = val,
                 ScaleY => scale.y = val,
                 ScaleZ => scale.z = val,
-                PTCL | BRANCH => todo!(),
             }
         }
 
@@ -529,11 +588,66 @@ impl AnimTransform {
             euler_rotation.x,
         );
 
-        Mat4::from_scale_rotation_translation(scale, rotation, translation)
+        let transform = Mat4::from_scale_rotation_translation(scale, rotation, translation);
+        AnimTransformBoneFrame { transform }
     }
 }
 
-fn extract_anim_transforms(figatree: FigaTree) -> Box<[AnimTransform]> {
+impl AnimTransformMaterial {
+    pub fn compute_frame_at(
+        &self, 
+        frame: f32, 
+        base_phong: Phong,
+    ) -> AnimTransformMaterialFrame {
+        let mut phong: PhongF32 = base_phong.into();
+
+        for track in self.material_tracks.iter() {
+            use TrackTypeMaterial::*;
+
+            let val: f32 = track.get_value(frame + track.start_frame);
+
+            match track.track_type {
+                AmbientR => phong.ambient[0] = val,
+                AmbientG => phong.ambient[1] = val,
+                AmbientB => phong.ambient[2] = val,
+                DiffuseR => phong.diffuse[0] = val,
+                DiffuseG => phong.diffuse[1] = val,
+                DiffuseB => phong.diffuse[2] = val,
+                SpecularR => phong.specular[0] = val,
+                SpecularG => phong.specular[1] = val,
+                SpecularB => phong.specular[2] = val,
+                Alpha => {
+                    phong.ambient[3] = val;
+                    phong.diffuse[3] = val;
+                    phong.specular[3] = val;
+                }
+            }
+        }
+
+        let mut tex_transform = TexTransform::default();
+
+        for track in self.texture_tracks.iter() {
+            use TrackTypeTexture::*;
+
+            let val: f32 = track.get_value(frame + track.start_frame);
+
+            match track.track_type {
+                KonstR => tex_transform.konst_colour[0] = val,
+                KonstG => tex_transform.konst_colour[1] = val,
+                KonstB => tex_transform.konst_colour[2] = val,
+                KonstA => tex_transform.konst_colour[3] = val,
+                Tev0R => tex_transform.tex_colour[0] = val,
+                Tev0G => tex_transform.tex_colour[1] = val,
+                Tev0B => tex_transform.tex_colour[2] = val,
+                Tev0A => tex_transform.tex_colour[3] = val,
+            }
+        }
+
+        AnimTransformMaterialFrame { phong, tex_transform }
+    }
+}
+
+fn extract_figatree_transforms(figatree: FigaTree) -> Vec<AnimTransformBone> {
     let mut transforms = Vec::new();
 
     // I pray that bone_index is correct here...
@@ -547,7 +661,7 @@ fn extract_anim_transforms(figatree: FigaTree) -> Box<[AnimTransform]> {
             tracks.push(decode_anim_data(data))
         }
 
-        let transform = AnimTransform {
+        let transform = AnimTransformBone {
             tracks: tracks.into_boxed_slice(),
             bone_index: i,
         };
@@ -555,7 +669,7 @@ fn extract_anim_transforms(figatree: FigaTree) -> Box<[AnimTransform]> {
         transforms.push(transform);
     }
 
-    transforms.into_boxed_slice()
+    transforms
 }
 
 // no clue what this does.
@@ -600,8 +714,8 @@ fn parse_float(stream: &mut Stream<'_>, format: AnimDataFormat, scale: f32) -> f
     }
 }
 
-pub struct TrackOrFOBJData<'a> {
-    pub track_type: TrackType,
+pub struct TrackOrFOBJData<'a, T: TrackType> {
+    pub track_type: T,
     pub data: &'a [u8],
     pub value_scale: f32,
     pub tan_scale: f32,
@@ -610,7 +724,7 @@ pub struct TrackOrFOBJData<'a> {
     pub start_frame: f32,
 }
 
-pub fn fobj_desc_data<'a>(fobj_desc: &HSDStruct<'a>) -> TrackOrFOBJData<'a> {
+pub fn fobj_desc_data<'a, T: TrackType>(fobj_desc: &HSDStruct<'a>) -> Option<TrackOrFOBJData<'a, T>> {
     let value_flag = fobj_desc.get_u8(0x0D);
     let tan_flag = fobj_desc.get_u8(0x0E);
     let value_scale = (1 << (value_flag & 0x1F)) as f32;
@@ -620,9 +734,9 @@ pub fn fobj_desc_data<'a>(fobj_desc: &HSDStruct<'a>) -> TrackOrFOBJData<'a> {
 
     let start_frame = fobj_desc.get_f32(0x08);
 
-    let track_type = TrackType::from_u8(fobj_desc.get_u8(0x0C)).unwrap();
+    let track_type = T::from_u8(fobj_desc.get_u8(0x0C))?;
 
-    TrackOrFOBJData {
+    Some(TrackOrFOBJData {
         track_type,
         data: fobj_desc.get_buffer(0x10),
         value_scale,
@@ -630,10 +744,10 @@ pub fn fobj_desc_data<'a>(fobj_desc: &HSDStruct<'a>) -> TrackOrFOBJData<'a> {
         value_format,
         tan_format,
         start_frame,
-    }
+    })
 }
 
-pub fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a> {
+pub fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a, TrackTypeBone> {
     TrackOrFOBJData {
         track_type: track.track_type(),
         data: track.hsd_struct.get_reference(0x08).data,
@@ -645,17 +759,7 @@ pub fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a> {
     }
 }
 
-pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
-    let track_type = track.track_type;
-
-    if track_type == TrackType::PTCL { 
-        return AnimTrack {
-            start_frame: track.start_frame,
-            track_type,
-            keys: Box::new([]),
-        }
-    }
-
+pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrack<T> {
     let mut buffer = Stream::new(track.data);
     let stream = &mut buffer;
     let mut clock: f32 = 0.0;
@@ -667,7 +771,7 @@ pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
 
     let mut melee_keys = Vec::new();
 
-    // FOBJ_Decoder.cs:55 (GetKeys)
+    // Tools/FOBJ_Decoder.cs:55 (GetKeys)
     while !stream.finished() {
         let typ = read_packed(stream);
         
@@ -718,10 +822,8 @@ pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
     }
     
     // TODO fix something about animations that don't start on frame 1?
-    // FOBJ_Decoder.cs:110
+    // Tools/FOBJ_Decoder.cs:110
 
-    // I HAVE NO IDEA WHAT THIS DOES
-    // IO_HSDAnim.cs:259-293
     let mut keys = Vec::with_capacity(melee_keys.len());
 
     let mut prev_state: Option<AnimState> = None;
@@ -741,7 +843,6 @@ pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
         }
 
         let key = match state.op_intrp {
-            //MeleeInterpolationType::NONE => panic!(),
             MeleeInterpolationType::CON { .. } | MeleeInterpolationType::KEY { .. } => Key {
                 frame: state.t0,
                 value: state.p0,
@@ -784,7 +885,7 @@ pub fn decode_anim_data(track: TrackOrFOBJData<'_>) -> AnimTrack {
     AnimTrack {
         start_frame: track.start_frame,
         keys: keys.into_boxed_slice(),
-        track_type,
+        track_type: track.track_type,
     }
 }
 
@@ -871,7 +972,7 @@ fn hermite(frame: f32, frame_left: f32, frame_right: f32, ls: f32, rs: f32, lhs:
     result
 }
 
-impl AnimTrack {
+impl<T: TrackType> AnimTrack<T> {
     // SBKeyGroup.cs:107
     pub fn get_value(&self, frame: f32) -> f32 {
         if self.keys.len() == 1 {
@@ -966,8 +1067,8 @@ impl AnimDataFormat {
 }
 
 impl<'a> Track<'a> {
-    pub fn track_type(&self) -> TrackType {
-        TrackType::from_u8(self.hsd_struct.get_i8(0x04) as u8).unwrap()
+    pub fn track_type(&self) -> TrackTypeBone {
+        TrackTypeBone::from_u8(self.hsd_struct.get_i8(0x04) as u8).unwrap()
     }
 
     pub fn value_flag(&self) -> u8 {
@@ -1041,89 +1142,132 @@ impl<'a> FigaTree<'a> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum TrackType {
-    //NONE = 0,
-    RotateX = 1,
+pub enum TrackTypeBone {
+    RotateX,
     RotateY,
     RotateZ,
-    //PATH,
-    TranslateX = 5,
+    TranslateX,
     TranslateY,
     TranslateZ,
     ScaleX,
     ScaleY,
     ScaleZ,
-    //NODE,
-    BRANCH = 12,
-    //SETBYTE0,
-    //SETBYTE1,
-    //SETBYTE2,
-    //SETBYTE3,
-    //SETBYTE4,
-    //SETBYTE5,
-    //SETBYTE6,
-    //SETBYTE7,
-    //SETBYTE8,
-    //SETBYTE9,
-    //SETFLOAT0,
-    //SETFLOAT1,
-    //SETFLOAT2,
-    //SETFLOAT3,
-    //SETFLOAT4,
-    //SETFLOAT5,
-    //SETFLOAT6,
-    //SETFLOAT7,
-    //SETFLOAT8,
-    //SETFLOAT9,
-    PTCL = 40 // Particle
+    //BRANCH,
+    //PTCL,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TrackTypeMaterial {
+    AmbientR,
+    AmbientG,
+    AmbientB,
+    DiffuseR,
+    DiffuseG,
+    DiffuseB,
+    SpecularR,
+    SpecularG,
+    SpecularB,
+    Alpha,
+}
 
-impl TrackType {
-    pub fn from_u8(n: u8) -> Option<Self> {
-        use TrackType::*;
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum TrackTypeTexture {
+    //TImg, //
+    //TraU,
+    //TraV,
+    //ScaU, //
+    //ScaV,
+    //RotX,
+    //RotY,
+    //RotZ,
+    //Blend, //
+    //TCLT = 10,
+    //LOD_BIAS = 11,
+    KonstR, //
+    KonstG,
+    KonstB,
+    KonstA, //
+    Tev0R,
+    Tev0G,
+    Tev0B,
+    Tev0A,
+    //TEV1_R = 20,
+    //TEV1_G = 21,
+    //TEV1_B = 22,
+    //TEV1_A = 23,
+    //TS_BLEND = 24
+}
+
+impl TrackType for TrackTypeBone {
+    fn from_u8(n: u8) -> Option<Self> {
+        use TrackTypeBone::*;
+        
+        // HSD_FOBJ.cs:90 (JointTrackType)
         Some(match n {
-            //0 => NONE,
             1 => RotateX,
             2 => RotateY,
             3 => RotateZ,
-            //4 => PATH,
             5 => TranslateX,
             6 => TranslateY,
             7 => TranslateZ,
             8 => ScaleX,
             9 => ScaleY,
             10 => ScaleZ,
-            //11 => NODE,
             
             // IO_HSDAnims.cs:239 (DecodeFOBJ)
             // HACK - reproduces strange (buggy?) behaviour in StudioSB
             // Node case not covered, TranslateX is the default.
             11 => TranslateX, 
 
-            12 => BRANCH,
-            //13 => SETBYTE0,
-            //14 => SETBYTE1,
-            //15 => SETBYTE2,
-            //16 => SETBYTE3,
-            //17 => SETBYTE4,
-            //18 => SETBYTE5,
-            //19 => SETBYTE6,
-            //20 => SETBYTE7,
-            //21 => SETBYTE8,
-            //22 => SETBYTE9,
-            //23 => SETFLOAT0,
-            //24 => SETFLOAT1,
-            //25 => SETFLOAT2,
-            //26 => SETFLOAT3,
-            //27 => SETFLOAT4,
-            //28 => SETFLOAT5,
-            //29 => SETFLOAT6,
-            //30 => SETFLOAT7,
-            //31 => SETFLOAT8,
-            //32 => SETFLOAT9,
-            40 => PTCL,
+            //12 => BRANCH,
+            //40 => PTCL,
             _ => return None,
+        })
+    }
+}
+
+impl TrackType for TrackTypeMaterial {
+    fn from_u8(n: u8) -> Option<Self> {
+        use TrackTypeMaterial::*;
+        
+        // HSD_FOBJ.cs:16 (MatTrackType)
+        Some(match n {
+            1 => AmbientR,
+            2 => AmbientG,
+            3 => AmbientB,
+            4 => DiffuseR,
+            5 => DiffuseG,
+            6 => DiffuseB,
+            7 => SpecularR,
+            8 => SpecularG,
+            9 => SpecularB,
+            10 => Alpha,
+            _ => {
+                println!("skipping material track {}", n);
+                return None;
+            }
+        })
+    }       
+}           
+
+impl TrackType for TrackTypeTexture {
+    fn from_u8(n: u8) -> Option<Self> {
+        use TrackTypeTexture::*;
+        
+        // HSD_FOBJ.cs:34 (TexTrackType)
+        Some(match n {
+            12 => KonstR,
+            13 => KonstG,
+            14 => KonstB,
+            15 => KonstA,
+            16 => Tev0R,
+            17 => Tev0G,
+            18 => Tev0B,
+            19 => Tev0A,
+            _ => {
+                println!("skipping texture track {}", n);
+                return None;
+            }
         })
     }       
 }           

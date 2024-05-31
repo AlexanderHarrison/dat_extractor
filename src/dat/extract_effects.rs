@@ -1,6 +1,6 @@
 use crate::dat::{InternalTextureFormat, HSDStruct, Image, TLUTFormat, Animation,
     JOBJ, extract_model_from_jobj, decode_palette, Model, decode_data,
-    parse_joint_anim};
+    parse_joint_anim, parse_mat_anim};
 
 // Melee/Ef/SBM_EffectTable.cs (SBM_EffectTable)
 #[derive(Clone, Debug)]
@@ -39,7 +39,7 @@ impl<'a> EffectTable<'a> {
         models.into_boxed_slice()
     }
 
-    pub fn models_and_animations(&self) -> Box<[(Model, Option<Animation>)]> {
+    pub fn models_and_animations(&self) -> Box<[(Model, Animation)]> {
         let count = (self.hsd_struct.len() - 0x08) / 0x14;
         let mut models = Vec::with_capacity(count);
 
@@ -52,10 +52,16 @@ impl<'a> EffectTable<'a> {
             };
             let model = extract_model_from_jobj(jobj, None).unwrap();
 
-            // joint anim
-            let anim = model_struct.try_get_reference(0x08)
-                .and_then(parse_joint_anim);
-            // TODO other animations???/
+            let mut anim = Animation::default();
+
+            if let Some(joint_anim_joint) = model_struct.try_get_reference(0x08) {
+                parse_joint_anim(&mut anim, joint_anim_joint);
+            }
+
+            if let Some(mat_anim_joint) = model_struct.try_get_reference(0x0C) {
+                parse_mat_anim(&mut anim, mat_anim_joint);
+            }
+
             models.push((model, anim));
         }
 
@@ -71,28 +77,23 @@ impl<'a> EffectTable<'a> {
         extract_model_from_jobj(jobj, None).ok()
     }
 
-    pub fn joint_anim(&self, model_idx: usize) -> Option<Animation> {
+    pub fn animation(&self, model_idx: usize) -> Option<Animation> {
         let count = (self.hsd_struct.len() - 0x08) / 0x14;
         if model_idx >= count { return None }
 
         let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
-        parse_joint_anim(model_struct.try_get_reference(0x08)?)
-    }
 
-    pub fn mat_anim(&self, model_idx: usize) -> Option<Box<[MaterialAnim]>> {
-        let count = (self.hsd_struct.len() - 0x08) / 0x14;
-        if model_idx >= count { return None }
+        let mut anim = Animation::default();
 
-        let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
-        Some(parse_material_anims(model_struct.try_get_reference(0x0C)?))
-    }
+        if let Some(joint_anim_joint) = model_struct.try_get_reference(0x08) {
+            parse_joint_anim(&mut anim, joint_anim_joint);
+        }
 
-    pub fn shape_anim(&self, model_idx: usize) -> Option<Box<[ShapeAnim]>> {
-        let count = (self.hsd_struct.len() - 0x08) / 0x14;
-        if model_idx >= count { return None }
+        if let Some(mat_anim_joint) = model_struct.try_get_reference(0x0C) {
+            parse_mat_anim(&mut anim, mat_anim_joint);
+        }
 
-        let model_struct = self.hsd_struct.get_embedded_struct(0x08 + 0x14 * model_idx, 0x14);
-        Some(parse_shape_anims(model_struct.try_get_reference(0x10)?))
+        Some(anim)
     }
 
     pub fn hidden_mat_animation_textures(&self) -> Box<[Image]> {
@@ -148,51 +149,6 @@ impl<'a> EffectTable<'a> {
 
         models.into_boxed_slice()
     }
-}
-
-// TODO
-pub struct ShapeAnim {}
-fn parse_shape_anims(_shape_anim_joint: HSDStruct<'_>) -> Box<[ShapeAnim]> {
-    todo!()
-    //let mut shape_anims = Vec::new();
-
-    //for shape_anim_joint in shape_anim_joint.iter_joint_tree(0x00, 0x04) {
-    //    // HSD_ShapeAnim
-    //    let shape_anim = shape_anim_joint.get_reference(0x08);
-
-    //    for shape_anim in shape_anim.iter_joint_list(0x00) {
-    //        let aobj_desc = shape_anim.get_reference(0x04);  
-
-    //        for aobj_desc in aobj_desc.iter_joint_list(0x00) {
-    //            todo!();
-    //        }
-    //    }
-    //}
-
-    //shape_anims.into_boxed_slice()
-}
-
-// TODO
-pub struct MaterialAnim {}
-fn parse_material_anims(_mat_anim_joint: HSDStruct<'_>) -> Box<[MaterialAnim]> {
-    todo!()
-    //let mut material_anims = Vec::new();
-
-    //for mat_anim_joint in mat_anim_joint.iter_joint_tree(0x00, 0x04) {
-    //    // HSD_MatAnim
-    //    let mat_anim = mat_anim_joint.get_reference(0x08);
-
-    //    for mat_anim in mat_anim.iter_joint_list(0x00) {
-    //        println!("mat anim");
-
-    //        let aobj = mat_anim.try_get_reference(0x04);
-    //        dbg!(aobj);
-    //        let tex_anim = mat_anim.try_get_reference(0x08);  
-    //        dbg!(tex_anim);
-    //    }
-    //}
-
-    //material_anims.into_boxed_slice()
 }
 
 pub fn extract_anim_joint_models(models: &mut Vec<Model>, anim_joint: HSDStruct) {

@@ -64,23 +64,23 @@ impl<'a> Attribute<'a> {
         }
     }
     
-    pub fn get_decoded_data_at(&self, loc: usize) -> Vec<f32> {
+    pub fn get_decoded_data_at(&self, data: &mut Vec<f32>, loc: usize) {
         if self.name == AttributeName::GX_VA_CLR0 || self.name == AttributeName::GX_VA_CLR1 {
             todo!();
             //return GetColorAt(index);
         }
 
+        data.clear();
+
         let stride = self.hsd_struct.get_i16(0x12) as usize;
         let offset = stride * loc;
 
-        let buffer = self.hsd_struct.get_reference(0x14); // buffer same
-
-        let mut data = Vec::new();
+        let buffer = self.hsd_struct.get_reference(0x14);
 
         match self.comp_type {
             CompType::UInt8 => {
                 for i in 0..stride {
-                    let f = buffer.get_i8(offset + i) as u8 as f32; 
+                    let f = buffer.get_u8(offset + i) as f32; 
                     data.push(f);
                 }
             } 
@@ -92,11 +92,11 @@ impl<'a> Attribute<'a> {
             }
             CompType::UInt16 => { 
                 for i in 0..(stride / 2) {
-                    let f = buffer.get_i16(offset + i*2) as u16 as f32; 
+                    let f = buffer.get_u16(offset + i*2) as f32; 
                     data.push(f);
                 }
             }
-            CompType::Int16 => { // Int16 ,
+            CompType::Int16 => {
                 for i in 0..(stride / 2) {
                     let f = buffer.get_i16(offset + i*2) as f32; 
                     data.push(f);
@@ -116,10 +116,6 @@ impl<'a> Attribute<'a> {
         for f in data.iter_mut() {
             *f /= (1 << scale) as f32
         }
-
-        //println!("loc {}", data[0]);
-
-        data
     }
 }
 
@@ -235,6 +231,7 @@ impl<'a> POBJ<'a> {
         let reader = crate::dat::Stream::new(buffer);
 
         let mut primitive_indices: Vec<u16> = Vec::with_capacity(256);
+        let mut data: Vec<f32> = Vec::with_capacity(9);
 
         while !reader.finished() {
             let b = reader.read_byte();
@@ -279,7 +276,7 @@ impl<'a> POBJ<'a> {
                     };
 
                     if attr.typ != AttributeType::GX_DIRECT {
-                        let data = attr.get_decoded_data_at(index);
+                        attr.get_decoded_data_at(&mut data, index);
 
                         match attr.name {
                             AttributeName::GX_VA_POS => {

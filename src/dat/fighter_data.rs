@@ -1,5 +1,5 @@
 use crate::dat::{
-    HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, parse_joint_anim,
+    HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, parse_joint_anim, parse_mat_anim,
     HSDRawFile, Animation, extract_anim_from_action, extract_character_model,
 };
 use crate::parse_string;
@@ -41,7 +41,7 @@ pub struct Article {
     pub model: Option<Model>,
     pub bone: Option<u32>,
     pub scale: f32,
-    pub animations: Option<Box<[Option<Animation>]>>, // TODO unused
+    pub animations: Option<Box<[Animation]>>,
 }
 
 impl<'a> FighterDataRoot<'a> {
@@ -108,7 +108,6 @@ impl<'a> FighterDataRoot<'a> {
                     let count = item_states.len() / 0x10;
                     let mut anim_vec = Vec::with_capacity(count);
 
-                    let mut n = 0;
                     for i in 0..count {
                         // Melee/Pl/SBM_ArticlePointer.cs (SBM_ItemState)
                         let item_state = item_states.get_embedded_struct(i * 0x10, 0x10);
@@ -117,16 +116,17 @@ impl<'a> FighterDataRoot<'a> {
                             println!("unused mat anim");
                         }
 
-                        if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
-                            anim_vec.push(parse_joint_anim(joint_anim_joint));
-                        } else {
-                            anim_vec.push(None);
-                            n += 1;
-                        }
-                    }
+                        let mut anim = Animation::default();
 
-                    if n != 0 {
-                        println!("{} unused article states out of {}", n, count);
+                        if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
+                            parse_joint_anim(&mut anim, joint_anim_joint);
+                        }
+
+                        if let Some(mat_anim_joint) = item_state.try_get_reference(0x04) {
+                            parse_mat_anim(&mut anim, mat_anim_joint);
+                        }
+
+                        anim_vec.push(anim);
                     }
 
                     animations = Some(anim_vec.into_boxed_slice());

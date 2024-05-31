@@ -1,7 +1,7 @@
 use crate::dat::{
     HSDStruct, HSDRawFile, JOBJ, ModelBoneIndicies, DatExtractError, 
     textures::{try_decode_texture, Texture},
-    Animation, parse_joint_anim,
+    Animation, parse_joint_anim, parse_mat_anim, Phong
 };
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
@@ -53,7 +53,6 @@ pub struct Vertex {
     pub weights: Vec4,
     pub bones: UVec4,
     pub colour: Vec4,
-    //pub colour1: Vec4,
 }
 impl Vertex {
     pub const ZERO: Vertex = Vertex {
@@ -76,11 +75,14 @@ pub struct MeshBuilder {
 
 #[derive(Debug, Clone)]
 pub struct Model {
+    // one for each bone
     pub bones: Box<[Bone]>,
     pub bone_child_idx: Box<[u16]>,
     pub base_transforms: Box<[Mat4]>,
     pub inv_world_transforms: Box<[Mat4]>,
 
+    // one for each dobj
+    pub phongs: Box<[Phong]>,
     pub primitive_groups: Box<[PrimitiveGroup]>,
     pub textures: Box<[Texture]>,
 
@@ -157,6 +159,8 @@ pub fn extract_model_from_jobj<'a>(
     // cache image data ptrs to prevent decoding textures multiple times
     let mut texture_cache = HashMap::with_capacity(64);
 
+    let mut phongs = Vec::with_capacity(128);
+
     let mut dobj_idx = 0;
     let t = std::time::Instant::now();
     for (i, jobj) in bone_jobjs.iter().enumerate() {
@@ -203,6 +207,8 @@ pub fn extract_model_from_jobj<'a>(
                     }
                 }
 
+                let phong = dobj.get_mobj().map(|m| m.get_phong()).unwrap_or(Phong::default());
+
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
 
                 let indices_len = builder.indices.len() as u16 - indices_start;
@@ -212,7 +218,8 @@ pub fn extract_model_from_jobj<'a>(
                     texture_idx,
                     indices_start,
                     indices_len,
-                })
+                });
+                phongs.push(phong);
             }
         }
 
@@ -220,7 +227,8 @@ pub fn extract_model_from_jobj<'a>(
         bone.pgroup_start = pgroup_start;
         bone.pgroup_len = pgroup_len;
     }
-    println!("mesh decode time: {}us\t {} vertices", t.elapsed().as_micros(), builder.vertices.len());
+
+    println!("mesh decode time: {}us\t {} vertices {} groups", t.elapsed().as_micros(), builder.vertices.len(), dobj_idx);
 
     // get transforms ------------------------------------------------------
     let mut base_transforms = Vec::with_capacity(bones.len());
@@ -248,6 +256,7 @@ pub fn extract_model_from_jobj<'a>(
         bones: bones.into_boxed_slice(),
         bone_child_idx: bone_child_idx.into_boxed_slice(),
         base_transforms: base_transforms.into_boxed_slice(),
+        phongs: phongs.into_boxed_slice(),
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),
         primitive_groups: pgroups.into_boxed_slice(),
         textures: textures.into_boxed_slice(),
@@ -286,23 +295,47 @@ impl<'a> MapGOBJ<'a> {
         JOBJ::new(self.hsd_struct.get_reference(0x00))
     }
 
-    pub fn joint_animations(&self) -> Vec<Animation> {
+    pub fn animations(&self) -> Vec<Animation> {
+        let mut anims = Vec::new();
+
         if let Some(iter) = self.hsd_struct.try_get_null_ptr_array(0x04) {
-            iter.filter_map(|s| parse_joint_anim(s))
-                .collect()
-        } else {
-            Vec::new()
+            for (i, joint_anim_joint) in iter.enumerate() {
+                while anims.len() <= i {
+                    anims.push(Animation::default());
+                }
+
+                parse_joint_anim(&mut anims[i], joint_anim_joint);
+            }
         }
+
+        if let Some(iter) = self.hsd_struct.try_get_null_ptr_array(0x08) {
+            for (i, mat_anim_joint) in iter.enumerate() {
+                while anims.len() <= i {
+                    anims.push(Animation::default());
+                }
+
+                parse_mat_anim(&mut anims[i], mat_anim_joint);
+            }
+        }
+
+        anims
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct StageData {
+    pub sections: Vec<StageSection>,
+    pub scale: f32,
+}
+
+#[derive(Clone, Debug)]
 pub struct StageSection {
     pub model: Model,
-    pub joint_animations: Vec<Animation>,
+    pub animations: Vec<Animation>,
 }
 
 /// returns (scale, models)
-pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl Iterator<Item=StageSection> + 'a), DatExtractError> {
+pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<StageData, DatExtractError> {
     let stage_root = parsed_stage_dat.roots.iter()
         .find(|root| root.root_string == "map_head")
         .ok_or(DatExtractError::InvalidDatFile)?
@@ -316,20 +349,19 @@ pub fn extract_stage<'a>(parsed_stage_dat: &HSDRawFile<'a>) -> Result<(f32, impl
 
     let scale = ground_params.get_f32(0x00);
 
-    Ok((
-        scale, 
-        stage_root.get_model_groups()
-            .map(|m| {
-                let model = extract_model_from_jobj(m.root_jobj(), None).unwrap();
-                let mut joint_animations = m.joint_animations();
+    let sections = stage_root.get_model_groups()
+        //.take(4)
+        .map(move |m| {
+            let model = extract_model_from_jobj(m.root_jobj(), None).unwrap();
+            let animations = m.animations();
 
-                // HACK
-                for anim in joint_animations.iter_mut() {
-                    anim.flags |= super::anim_flags::LOOP
-                }
-                StageSection { model, joint_animations }
-            })
-    ))
+            StageSection { model, animations }
+        }).collect();
+
+    Ok(StageData {
+        sections,
+        scale
+    })
 }
 
 //impl Model {

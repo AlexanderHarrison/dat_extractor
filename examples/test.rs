@@ -5,38 +5,92 @@ use dat_tools::dat::*;
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    let dat = files.read_file("EfCoData.dat").unwrap();
-    let file = HSDRawFile::new(&dat);
+    let stage_dat = files.read_file("GrNLa.dat").unwrap();
+    let parsed_stage_dat = dat_tools::dat::HSDRawFile::new(&stage_dat);
 
-    let ef = EffectTable::new(file.roots[0].hsd_struct.clone());
+    let stage_root = parsed_stage_dat.roots.iter()
+        .find(|root| root.root_string == "map_head")
+        .ok_or(DatExtractError::InvalidDatFile).unwrap()
+        .hsd_struct.clone();
+    //let stage_root = MapHead::new(stage_root);
 
-    let count = (ef.hsd_struct.len() - 0x08) / 0x14;
-    for i in 0..count {
-        let effect_model = ef.hsd_struct.get_embedded_struct(0x08 + 0x14 * i, 0x14);
+    let gobjs = stage_root.get_array(0x34, 8);
 
-        println!("{i}:");
-        let j = effect_model.try_get_reference(0x8);
-        if let Some(j) = j {
-            println!("  joint anim {}", j.iter_joint_tree(0, 4).count());
+    fn print_mat_anim(m: HSDStruct, depth: usize)  {
+        println!("{}MAT ANIM {}", " ".repeat(depth), m.iter_joint_list(0).count());
+        //println!("{}MAT ANIM", " ".repeat(depth));
+
+        //if let Some(c) = m.try_get_reference(4) {
+        //    println!("{}AOBJ", " ".repeat(depth+1));
+        //}
+
+        //if let Some(c) = m.try_get_reference(8) {
+        //    for t in c.iter_joint_list(0) {
+        //        println!("{}TEX ANIM", " ".repeat(depth+1));
+        //    }
+        //}
+
+        //if let Some(c) = m.try_get_reference(0) {
+        //    print_mat_anim(c, depth);
+        //}
+    }
+
+    fn print_joint(mj: HSDStruct, depth: usize)  {
+        println!("{}JOINT", " ".repeat(depth));
+
+        if let Some(c) = mj.try_get_reference(8) {
+            print_mat_anim(c, depth+1);
         }
 
-        let m = effect_model.try_get_reference(0xC);
-        if let Some(m) = m {
-            println!("  material anim {}", m.clone().iter_joint_tree(0, 4).count());
-            for (idx, a) in m.iter_joint_tree(0, 4).enumerate() {
-                println!(
-                    "    {}: mat_anim {}, aobj {}, tex anim {}",
-                    idx,
-                    a.try_get_reference(0).is_some(),
-                    a.try_get_reference(4).is_some(),
-                    a.try_get_reference(8).is_some(),
-                )
+        if let Some(c) = mj.try_get_reference(0) {
+            print_joint(c, depth+1);
+        }
+
+        if let Some(c) = mj.try_get_reference(4) {
+            print_joint(c, depth);
+        }
+    }
+
+    fn print_jobj(j: HSDStruct, depth: usize)  {
+        println!("{}JOBJ", " ".repeat(depth));
+        
+        let jobj = JOBJ::new(j.clone());
+
+        if let Some(c) = jobj.get_dobj() {
+            println!("{}DOBJ {}", " ".repeat(depth+1), c.hsd_struct.iter_joint_list(4).count());
+        }
+
+        if let Some(c) = j.try_get_reference(8) {
+            print_jobj(c, depth+1);
+        }
+
+        if let Some(c) = j.try_get_reference(0xC) {
+            print_jobj(c, depth);
+        }
+    }
+
+    for gobj in gobjs.take(5) {
+        println!("GOBJ");
+        if let Some(j) = gobj.try_get_reference(0x8) {
+            for r in j.get_references().borrow().values() {
+                print_joint(r.clone(), 1);
             }
         }
 
-        let s = effect_model.try_get_reference(0x10);
-        if let Some(s) = s {
-            println!("  shape anim {}", s.iter_joint_tree(0, 4).count());
-        }
+        print_jobj(gobj.get_reference(0), 1);
+
+        //if let Some(j) = gobj.try_get_reference(0x4) {
+        //    println!(" anim joint count: {}", j.len() / 4 - 1);
+        //}
+        //if let Some(j) = gobj.try_get_reference(0x8) {
+        //    println!(" anim mat count: {}", j.len() / 4 - 1);
+        //}
+        //if let Some(j) = gobj.try_get_reference(0xC) {
+        //    println!(" anim shape count: {}", j.len() / 4 - 1);
+        //}
     }
+
+    //for joint in stage_root.try_get_null_ptr_array(8).unwrap() {
+    //    print_joint(joint, 0);
+    //}
 }
