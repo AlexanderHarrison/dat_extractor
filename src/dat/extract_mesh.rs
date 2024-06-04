@@ -1,7 +1,7 @@
 use crate::dat::{
     HSDStruct, HSDRawFile, JOBJ, ModelBoneIndicies, DatExtractError, 
     textures::{try_decode_texture, Texture},
-    Animation, parse_joint_anim, parse_mat_anim, Phong
+    Animation, parse_joint_anim, parse_mat_anim, Phong, RenderModeFlags
 };
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
 use glam::u32::UVec4;
@@ -25,6 +25,7 @@ pub struct PrimitiveGroup {
     pub indices_start: u16,
     pub indices_len: u16,
     pub model_group_idx: u8,
+    pub mobj_render_flags: RenderModeFlags,
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -207,8 +208,9 @@ pub fn extract_model_from_jobj<'a>(
                     }
                 }
 
-                let phong = dobj.get_mobj().map(|m| m.get_phong()).unwrap_or(Phong::default());
-
+                let (phong, mobj_render_flags) = dobj.get_mobj()
+                    .map(|m| (m.get_phong(), m.flags()))
+                    .unwrap_or((Phong::default(), 0));
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
 
                 let indices_len = builder.indices.len() as u16 - indices_start;
@@ -218,6 +220,7 @@ pub fn extract_model_from_jobj<'a>(
                     texture_idx,
                     indices_start,
                     indices_len,
+                    mobj_render_flags,
                 });
                 phongs.push(phong);
             }

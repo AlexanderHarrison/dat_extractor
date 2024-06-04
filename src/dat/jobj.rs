@@ -132,9 +132,9 @@ impl<'a> Envelope<'a> {
     // HSD_Envelope.cs:13,56 (Weights, GetWeightAt)
     pub fn weights(&self) -> [f32; 4] {
         let mut weights = [0.0f32; 4];
-        let len = self.hsd_struct.reference_count().min(4);
+        let len = self.hsd_struct.reference_count();
+        assert!(len <= 4);
 
-        #[allow(clippy::needless_range_loop)]
         for i in 0..len {
             weights[i] = self.hsd_struct.get_f32(i*8 + 4);
         }
