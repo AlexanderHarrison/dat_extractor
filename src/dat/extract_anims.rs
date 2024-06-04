@@ -540,6 +540,8 @@ pub struct AnimTransformMaterialFrame {
 pub struct TexTransform {
     pub konst_colour: [f32; 4], // idk
     pub tex_colour: [f32; 4],
+    pub uv_scale: [f32; 2],
+    pub uv_translation: [f32; 2],
 }
 
 impl Default for TexTransform {
@@ -547,6 +549,8 @@ impl Default for TexTransform {
         TexTransform {
             konst_colour: [0.0; 4],
             tex_colour: [1.0; 4],
+            uv_scale: [1.0; 2],
+            uv_translation: [0.0; 2],
         }
     }
 }
@@ -624,7 +628,7 @@ impl AnimTransformMaterial {
             }
         }
 
-        let mut tex_transform = TexTransform::default();
+        let mut tex_t = TexTransform::default();
 
         for track in self.texture_tracks.iter() {
             use TrackTypeTexture::*;
@@ -632,18 +636,22 @@ impl AnimTransformMaterial {
             let val: f32 = track.get_value(frame + track.start_frame);
 
             match track.track_type {
-                KonstR => tex_transform.konst_colour[0] = val,
-                KonstG => tex_transform.konst_colour[1] = val,
-                KonstB => tex_transform.konst_colour[2] = val,
-                KonstA => tex_transform.konst_colour[3] = val,
-                Tev0R => tex_transform.tex_colour[0] = val,
-                Tev0G => tex_transform.tex_colour[1] = val,
-                Tev0B => tex_transform.tex_colour[2] = val,
-                Tev0A => tex_transform.tex_colour[3] = val,
+                TraU => tex_t.uv_translation[0] = val,
+                TraV => tex_t.uv_translation[1] = val,
+                ScaU => tex_t.uv_scale[0] = val,
+                ScaV => tex_t.uv_scale[1] = val,
+                KonstR => tex_t.konst_colour[0] = val,
+                KonstG => tex_t.konst_colour[1] = val,
+                KonstB => tex_t.konst_colour[2] = val,
+                KonstA => tex_t.konst_colour[3] = val,
+                Tev0R => tex_t.tex_colour[0] = val,
+                Tev0G => tex_t.tex_colour[1] = val,
+                Tev0B => tex_t.tex_colour[2] = val,
+                Tev0A => tex_t.tex_colour[3] = val,
             }
         }
 
-        AnimTransformMaterialFrame { phong, tex_transform }
+        AnimTransformMaterialFrame { phong, tex_transform: tex_t }
     }
 }
 
@@ -1173,10 +1181,10 @@ pub enum TrackTypeMaterial {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum TrackTypeTexture {
     //TImg, //
-    //TraU,
-    //TraV,
-    //ScaU, //
-    //ScaV,
+    TraU,
+    TraV,
+    ScaU, //
+    ScaV,
     //RotX,
     //RotY,
     //RotZ,
@@ -1256,6 +1264,10 @@ impl TrackType for TrackTypeTexture {
         
         // HSD_FOBJ.cs:34 (TexTrackType)
         Some(match n {
+            2 => TraU,
+            3 => TraV,
+            4 => ScaU, //
+            5 => ScaV,
             12 => KonstR,
             13 => KonstG,
             14 => KonstB,
