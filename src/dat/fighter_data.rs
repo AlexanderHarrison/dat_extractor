@@ -12,6 +12,8 @@ pub struct FighterData {
     pub attributes: FighterAttributes,
     pub articles: Box<[Article]>,
     pub action_table: Box<[FighterAction]>,
+
+    pub ecb_bones: [u16; 6],
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +49,19 @@ pub struct Article {
 impl<'a> FighterDataRoot<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
         Self { hsd_struct }
+    }
+
+    pub fn ecb_bones(&self) -> [u16; 6] {
+        // SBM_EnvironmentCollision
+        let env = self.hsd_struct.get_reference(0x44);
+        [
+            env.get_u16(0x0),
+            env.get_u16(0x2),
+            env.get_u16(0x4),
+            env.get_u16(0x6),
+            env.get_u16(0x8),
+            env.get_u16(0xA),
+        ]
     }
 
     pub fn attributes(&self) -> FighterAttributes {
@@ -175,6 +190,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
+    let ecb_bones = fighter_data_root.ecb_bones();
     let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
@@ -186,15 +202,16 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
         attributes,
         articles,
         action_table,
+        ecb_bones,
     })
 }
 
-pub struct ModelBoneIndicies {
+pub struct ModelBoneIndices {
     pub groups: Box<[(u16, u16)]>, // turned into model groups
-    pub indicies: Box<[u8]>,
+    pub indices: Box<[u8]>,
 }
 
-pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBoneIndicies {
+pub fn get_high_poly_bone_indices<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBoneIndices {
     let fighter_root = &fighter_hsd.roots[0];
 
     // SBM_PlayerModelLookupTables
@@ -202,22 +219,22 @@ pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBon
 
     let costume_table = lookup_tables.get_array(0x10, 0x04).next().unwrap();
 
-    let mut indicies = Vec::with_capacity(64);
+    let mut indices = Vec::with_capacity(64);
     let mut groups = Vec::with_capacity(8);
     for high_poly_table in costume_table.get_array(0x08, 0x00) {
         if let Some(jobj_table_iter) = high_poly_table.try_get_array(0x08, 0x04) {
             for jobj_table in jobj_table_iter {
                 let count = jobj_table.get_i32(0x00) as usize;
                 let new = &jobj_table.get_buffer(0x04)[..count];
-                groups.push((indicies.len() as u16, new.len() as u16));
-                indicies.extend_from_slice(new);
+                groups.push((indices.len() as u16, new.len() as u16));
+                indices.extend_from_slice(new);
             }
         }
     }
 
-    ModelBoneIndicies {
+    ModelBoneIndices {
         groups: groups.into_boxed_slice(),
-        indicies: indicies.into_boxed_slice(),
+        indices: indices.into_boxed_slice(),
     }
 }
 

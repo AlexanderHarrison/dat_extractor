@@ -463,7 +463,7 @@ impl Animation {
         frame_num: f32, 
         prev_frame: &mut AnimationFrame,
         model: &Model,
-        remove_animation_translation: bool,
+        remove_root_translation: bool,
     ) {
         for transform in self.bone_transforms.iter() {
             let bone_index = transform.bone_index;
@@ -495,10 +495,12 @@ impl Animation {
         //    } 
         //}
 
-        if remove_animation_translation {
-            // Remove translation from root jobj.
-            // This is given by slippi recording.
-            prev_frame.animated_transforms[1].w_axis = Vec4::new(0.0, 0.0, 0.0, 1.0);
+        if remove_root_translation {
+            // Remove translation from root jobj. This is given by slippi recording.
+            // Not entirely accurate - I think slp is recording some other character "centre" 
+            // (a different bone?).
+            prev_frame.animated_transforms[1].w_axis.z = 0.0;
+            prev_frame.animated_transforms[1].w_axis.y = 0.0;
         }
 
         for (i, animated_transform) in prev_frame.animated_transforms.iter().enumerate() {
@@ -560,16 +562,20 @@ unsafe impl bytemuck::NoUninit for TexTransform {}
 impl AnimTransformBone {
     pub fn compute_frame_at(
         &self, 
-        frame: f32, 
+        mut frame: f32, 
         base_transform: &Mat4,
     ) -> AnimTransformBoneFrame {
         let (mut scale, qrot, mut translation) = base_transform.to_scale_rotation_translation();
         let (rz, ry, rx) = qrot.to_euler(glam::EulerRot::ZYX);
         let mut euler_rotation = Vec3 { x: rx, y: ry, z: rz };
 
+        if frame < 0.0 { frame = 0.0; }
+
         use TrackTypeBone::*;
         for track in self.tracks.iter() {
-            let val: f32 = track.get_value(frame + track.start_frame);
+            if frame < track.start_frame { continue; }
+
+            let val: f32 = track.get_value(frame - track.start_frame);
 
             match track.track_type {
                 // joint
@@ -662,7 +668,7 @@ fn extract_figatree_transforms(figatree: FigaTree) -> Vec<AnimTransformBone> {
     // It looks like the skeleton bone array is depth-first (SBSkeleton.cs:48)
     // and the flat list of nodes here corresponds with that access method (IO_HSDAnim.cs:76).
     // Not obvious.
-    for (i, node) in figatree.get_nodes().iter().enumerate() {
+    for (bone_index, node) in figatree.get_nodes().iter().enumerate() {
         let mut tracks = Vec::new();
         for track in node.tracks.iter() {
             let data = hsd_track_data(track);
@@ -671,7 +677,7 @@ fn extract_figatree_transforms(figatree: FigaTree) -> Vec<AnimTransformBone> {
 
         let transform = AnimTransformBone {
             tracks: tracks.into_boxed_slice(),
-            bone_index: i,
+            bone_index,
         };
 
         transforms.push(transform);
@@ -770,14 +776,16 @@ pub fn hsd_track_data<'a>(track: &Track<'a>) -> TrackOrFOBJData<'a, TrackTypeBon
 pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrack<T> {
     let mut buffer = Stream::new(track.data);
     let stream = &mut buffer;
-    let mut clock: f32 = 0.0;
+    let mut frame: f32 = 0.0;
 
     let value_scale = track.value_scale;
     let tan_scale = track.tan_scale;
     let value_format = track.value_format;
     let tan_format = track.tan_format;
 
-    let mut melee_keys = Vec::new();
+    let mut keys = Vec::new();
+
+    let mut in_tan = 0.0;
 
     // Tools/FOBJ_Decoder.cs:55 (GetKeys)
     while !stream.finished() {
@@ -786,109 +794,132 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
         let interp_type = typ & 0x0F;
         if interp_type == 0x00 { break }
         let num_keys = (typ >> 4) + 1;
-        
-        for _ in 0..num_keys {
-            let mut time = 0;
 
-            let interpolation = match interp_type {
+        for _ in 0..num_keys {
+            match interp_type {
                 0x01 => {
                     let value = parse_float(stream, value_format, value_scale);
-                    time = read_packed(stream);
-                    MeleeInterpolationType::CON { value, time }
+                    keys.push(Key {
+                        frame,
+                        value,
+                        interpolation: InterpolationType::Step,
+                        in_tan,
+                        out_tan: 0.0,
+                    });
+                    frame += read_packed(stream) as f32;
+                    in_tan = 0.0;
                 }
                 0x02 => {
                     let value = parse_float(stream, value_format, value_scale);
-                    time = read_packed(stream);
-                    MeleeInterpolationType::LIN { value, time }
+                    keys.push(Key {
+                        frame,
+                        value,
+                        interpolation: InterpolationType::Linear,
+                        in_tan,
+                        out_tan: 0.0,
+                    });
+                    frame += read_packed(stream) as f32;
+                    in_tan = 0.0;
                 }
                 0x03 => {
                     let value = parse_float(stream, value_format, value_scale);
-                    time = read_packed(stream);
-                    MeleeInterpolationType::SPL0 { value, time }
+                    //MeleeInterpolationType::SPL0 { value, time }
+                    keys.push(Key {
+                        frame,
+                        value,
+                        interpolation: InterpolationType::Hermite,
+                        in_tan,
+                        out_tan: 0.0,
+                    });
+                    frame += read_packed(stream) as f32;
+                    in_tan = 0.0;
                 }
                 0x04 => {
                     let value = parse_float(stream, value_format, value_scale);
                     let tan = parse_float(stream, tan_format, tan_scale);
-                    time = read_packed(stream);
-                    MeleeInterpolationType::SPL { value, tan, time }
+                    ////MeleeInterpolationType::SPL { value, tan, time }
+                    keys.push(Key {
+                        frame,
+                        value,
+                        interpolation: InterpolationType::Hermite,
+                        in_tan: tan,
+                        out_tan: 0.0,
+                    });
+                    frame += read_packed(stream) as f32;
+                    in_tan = 0.0;
                 }
                 0x05 => {
                     let tan = parse_float(stream, tan_format, tan_scale);
-                    MeleeInterpolationType::SLP { tan }
+                    //keys.last_mut().unwrap().out_tan = tan;
+                    //MeleeInterpolationType::SLP { tan }
                 }
-                0x06 => {
-                    let value = parse_float(stream, value_format, value_scale);
-                    MeleeInterpolationType::KEY { value }
+                0x06 => { // not used so far
+                    eprintln!("unused key frame!");
+                    parse_float(stream, value_format, value_scale);
+                    continue;
                 }
                 _ => panic!(),
             };
-
-            melee_keys.push((clock, interpolation));
-
-            clock += time as f32;
         }
     }
-    
-    // TODO fix something about animations that don't start on frame 1?
-    // Tools/FOBJ_Decoder.cs:110
 
-    let mut keys = Vec::with_capacity(melee_keys.len());
+    //let mut keys = Vec::with_capacity(melee_keys.len());
 
-    let mut prev_state: Option<AnimState> = None;
-    for i in 0..melee_keys.len() {
-        let (frame, interpolation) = melee_keys[i];
-        let mut state = get_state(&melee_keys, frame);
-        let next_slope = i+1 < melee_keys.len() && matches!(melee_keys[i+1].1, MeleeInterpolationType::SLP { .. } );
+    //let mut prev_state: Option<AnimState> = None;
+    //for i in 0..melee_keys.len() {
+    //    let (frame, interpolation) = melee_keys[i];
+    //    let mut state = get_state(&melee_keys, frame);
+    //    let next_slope = i+1 < melee_keys.len() && matches!(melee_keys[i+1].1, MeleeInterpolationType::SLP { .. } );
 
-        if frame == state.t1 {
-            state.t0 = state.t1;
-            state.p0 = state.p1;
-            state.d0 = state.d1;
-        }
+    //    if frame == state.t1 {
+    //        state.t0 = state.t1;
+    //        state.p0 = state.p1;
+    //        state.d0 = state.d1;
+    //    }
 
-        if matches!(interpolation, MeleeInterpolationType::SLP { .. }) {
-            continue
-        }
+    //    if matches!(interpolation, MeleeInterpolationType::SLP { .. }) {
+    //        continue
+    //    }
 
-        let key = match state.op_intrp {
-            MeleeInterpolationType::CON { .. } | MeleeInterpolationType::KEY { .. } => Key {
-                frame: state.t0,
-                value: state.p0,
-                interpolation: InterpolationType::Step,
-                in_tan: 0.0,
-                out_tan: 0.0,
-            },
+    //    let key = match state.op_intrp {
+    //        MeleeInterpolationType::CON { .. } | MeleeInterpolationType::KEY { .. } => Key {
+    //            frame: state.t0,
+    //            value: state.p0,
+    //            interpolation: InterpolationType::Step,
+    //            in_tan: 0.0,
+    //            out_tan: 0.0,
+    //        },
 
-            MeleeInterpolationType::LIN { .. } => Key {
-                frame: state.t0,
-                value: state.p0,
-                interpolation: InterpolationType::Linear,
-                in_tan: 0.0,
-                out_tan: 0.0,
-            },
+    //        MeleeInterpolationType::LIN { .. } => Key {
+    //            frame: state.t0,
+    //            value: state.p0,
+    //            interpolation: InterpolationType::Linear,
+    //            in_tan: 0.0,
+    //            out_tan: 0.0,
+    //        },
 
-            MeleeInterpolationType::SPL { .. } 
-                | MeleeInterpolationType::SPL0 { .. }
-                | MeleeInterpolationType::SLP { .. } => 
-            {
-                let in_tan = match prev_state {
-                    Some(s) if next_slope => s.d1,
-                    _ => state.d0
-                };
+    //        MeleeInterpolationType::SPL { .. } 
+    //            | MeleeInterpolationType::SPL0 { .. }
+    //            | MeleeInterpolationType::SLP { .. } => 
+    //        {
+    //            let in_tan = match prev_state {
+    //                Some(s) if next_slope => s.d1,
+    //                _ => state.d0
+    //            };
 
-                Key {
-                    frame: state.t0,
-                    value: state.p0,
-                    interpolation: InterpolationType::Hermite,
-                    in_tan,
-                    out_tan: state.d0,
-                }
-            }
-        };
-        
-        keys.push(key);
-        prev_state = Some(state);
-    }
+    //            Key {
+    //                frame: state.t0,
+    //                value: state.p0,
+    //                interpolation: InterpolationType::Hermite,
+    //                in_tan,
+    //                out_tan: state.d0,
+    //            }
+    //        }
+    //    };
+    //    
+    //    keys.push(key);
+    //    prev_state = Some(state);
+    //}
 
     AnimTrack {
         start_frame: track.start_frame,
@@ -896,6 +927,136 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
         track_type: track.track_type,
     }
 }
+
+//pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrack<T> {
+//    let mut buffer = Stream::new(track.data);
+//    let stream = &mut buffer;
+//    let mut clock: f32 = 0.0;
+//
+//    let value_scale = track.value_scale;
+//    let tan_scale = track.tan_scale;
+//    let value_format = track.value_format;
+//    let tan_format = track.tan_format;
+//
+//    let mut melee_keys = Vec::new();
+//
+//    // Tools/FOBJ_Decoder.cs:55 (GetKeys)
+//    while !stream.finished() {
+//        let typ = read_packed(stream);
+//        
+//        let interp_type = typ & 0x0F;
+//        if interp_type == 0x00 { break }
+//        let num_keys = (typ >> 4) + 1;
+//        
+//        for _ in 0..num_keys {
+//            let mut time = 0;
+//
+//            let interpolation = match interp_type {
+//                0x01 => {
+//                    let value = parse_float(stream, value_format, value_scale);
+//                    time = read_packed(stream);
+//                    MeleeInterpolationType::CON { value, time }
+//                }
+//                0x02 => {
+//                    let value = parse_float(stream, value_format, value_scale);
+//                    time = read_packed(stream);
+//                    MeleeInterpolationType::LIN { value, time }
+//                }
+//                0x03 => {
+//                    let value = parse_float(stream, value_format, value_scale);
+//                    time = read_packed(stream);
+//                    MeleeInterpolationType::SPL0 { value, time }
+//                }
+//                0x04 => {
+//                    let value = parse_float(stream, value_format, value_scale);
+//                    let tan = parse_float(stream, tan_format, tan_scale);
+//                    time = read_packed(stream);
+//                    MeleeInterpolationType::SPL { value, tan, time }
+//                }
+//                0x05 => {
+//                    let tan = parse_float(stream, tan_format, tan_scale);
+//                    MeleeInterpolationType::SLP { tan }
+//                }
+//                0x06 => {
+//                    let value = parse_float(stream, value_format, value_scale);
+//                    MeleeInterpolationType::KEY { value }
+//                }
+//                _ => panic!(),
+//            };
+//
+//            melee_keys.push((clock, interpolation));
+//
+//            clock += time as f32;
+//        }
+//    }
+//    
+//    // TODO fix something about animations that don't start on frame 1?
+//    // Tools/FOBJ_Decoder.cs:110
+//
+//    let mut keys = Vec::with_capacity(melee_keys.len());
+//
+//    let mut prev_state: Option<AnimState> = None;
+//    for i in 0..melee_keys.len() {
+//        let (frame, interpolation) = melee_keys[i];
+//        let mut state = get_state(&melee_keys, frame);
+//        let next_slope = i+1 < melee_keys.len() && matches!(melee_keys[i+1].1, MeleeInterpolationType::SLP { .. } );
+//
+//        if frame == state.t1 {
+//            state.t0 = state.t1;
+//            state.p0 = state.p1;
+//            state.d0 = state.d1;
+//        }
+//
+//        if matches!(interpolation, MeleeInterpolationType::SLP { .. }) {
+//            continue
+//        }
+//
+//        let key = match state.op_intrp {
+//            MeleeInterpolationType::CON { .. } | MeleeInterpolationType::KEY { .. } => Key {
+//                frame: state.t0,
+//                value: state.p0,
+//                interpolation: InterpolationType::Step,
+//                in_tan: 0.0,
+//                out_tan: 0.0,
+//            },
+//
+//            MeleeInterpolationType::LIN { .. } => Key {
+//                frame: state.t0,
+//                value: state.p0,
+//                interpolation: InterpolationType::Linear,
+//                in_tan: 0.0,
+//                out_tan: 0.0,
+//            },
+//
+//            MeleeInterpolationType::SPL { .. } 
+//                | MeleeInterpolationType::SPL0 { .. }
+//                | MeleeInterpolationType::SLP { .. } => 
+//            {
+//                let in_tan = match prev_state {
+//                    Some(s) if next_slope => s.d1,
+//                    _ => state.d0
+//                };
+//
+//                Key {
+//                    frame: state.t0,
+//                    value: state.p0,
+//                    interpolation: InterpolationType::Hermite,
+//                    in_tan,
+//                    out_tan: state.d0,
+//                }
+//            }
+//        };
+//        
+//        keys.push(key);
+//        prev_state = Some(state);
+//    }
+//
+//    AnimTrack {
+//        start_frame: track.start_frame,
+//        keys: keys.into_boxed_slice(),
+//        track_type: track.track_type,
+//    }
+//}
 
 fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
     let mut t0 = 0.0;
@@ -913,7 +1074,6 @@ fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
         op = interpolation;
 
         match op {
-            //MeleeInterpolationType::NONE => (),
             MeleeInterpolationType::CON { value, .. } | MeleeInterpolationType::LIN { value, ..} => {
                 p0 = p1;
                 p1 = value;
@@ -926,8 +1086,8 @@ fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
             }
             MeleeInterpolationType::SPL0 { value, .. } => {
                 p0 = p1;
-                d0 = d1;
                 p1 = value;
+                d0 = d1;
                 d1 = 0.0;
                 t0 = t1;
                 t1 = kframe;

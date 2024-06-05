@@ -1,5 +1,5 @@
 use crate::dat::{
-    HSDStruct, HSDRawFile, JOBJ, ModelBoneIndicies, DatExtractError, 
+    HSDStruct, HSDRawFile, JOBJ, ModelBoneIndices, DatExtractError, 
     textures::{try_decode_texture, Texture},
     Animation, parse_joint_anim, parse_mat_anim, Phong, RenderModeFlags
 };
@@ -99,13 +99,13 @@ pub fn extract_character_model<'a>(
         .find_map(|root| JOBJ::try_from_root_node(root))
         .ok_or(DatExtractError::InvalidDatFile)?;
 
-    let high_poly_bone_indicies = super::get_high_poly_bone_indicies(parsed_fighter_dat);
-    extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indicies))
+    let high_poly_bone_indices = super::get_high_poly_bone_indices(parsed_fighter_dat);
+    extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indices))
 }
 
 pub fn extract_model_from_jobj<'a>(
     root_jobj: JOBJ<'a>, 
-    high_poly_bone_indicies: Option<&ModelBoneIndicies> // extracts all if None
+    high_poly_bone_indices: Option<&ModelBoneIndices> // extracts all if None
 ) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
     let mut bone_child_idx = Vec::with_capacity(256);
@@ -171,10 +171,10 @@ pub fn extract_model_from_jobj<'a>(
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
                 // hack to skip low poly mesh
-                let model_group_idx = match high_poly_bone_indicies {
+                let model_group_idx = match high_poly_bone_indices {
                     None => 0,
-                    Some(ref high_poly_bone_indicies) => {
-                        let dobj_idx_idx = match high_poly_bone_indicies.indicies.iter()
+                    Some(ref high_poly_bone_indices) => {
+                        let dobj_idx_idx = match high_poly_bone_indices.indices.iter()
                             .copied()
                             .position(|idx| idx == dobj_idx)
                         {
@@ -186,7 +186,7 @@ pub fn extract_model_from_jobj<'a>(
                         };
 
                         let mut model_group_idx = None;
-                        for (i, group) in high_poly_bone_indicies.groups.iter().enumerate() {
+                        for (i, group) in high_poly_bone_indices.groups.iter().enumerate() {
                             let range = (group.0)..(group.0 + group.1);
                             if range.contains(&dobj_idx_idx) {
                                 model_group_idx = Some(i);
@@ -252,6 +252,11 @@ pub fn extract_model_from_jobj<'a>(
     let mut inv_world_transforms = world_transforms;
     for t in inv_world_transforms.iter_mut() {
         *t = t.inverse();
+    }
+
+    if high_poly_bone_indices.is_some() {
+        println!("bones: {}", bones.len());
+        println!("groups: {}", pgroups.len());
     }
 
     // construct model ------------------------------------------------
