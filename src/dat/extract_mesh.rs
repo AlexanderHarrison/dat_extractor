@@ -123,21 +123,24 @@ pub fn extract_model_from_jobj<'a>(
         let bone_idx = bones.len() as _;
         bones.push(Bone::default());
 
-        let child_start = bone_child_idx.len() as _;
+        let child_start = bone_child_idx.len();
         let mut child_len = 0;
-
-        for child_jobj in jobj.children() {
+        for _ in jobj.children() {
             child_len += 1;
+            bone_child_idx.push(0); // set later
+        }
+
+        for (child_i, child_jobj) in jobj.children().enumerate() {
             let child_idx = set_bone_idx(bone_jobjs, bone_child_idx, bones, Some(bone_idx), child_jobj);
-            bone_child_idx.push(child_idx)
+            bone_child_idx[child_start + child_i] = child_idx;
         }
 
         bones[bone_idx as usize] = Bone {
             parent,
-            child_start,
+            child_start: child_start as _,
             child_len,
 
-            // are set later
+            // set later
             pgroup_start: 0,
             pgroup_len: 0,
         };
@@ -147,6 +150,59 @@ pub fn extract_model_from_jobj<'a>(
     for jobj in root_jobj.siblings() {
         set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
     }
+
+    //let mut bone_path_indices = vec![0];
+    //bone_jobjs.push(r_jobj);
+    //let child_len = r_obj.children().count();
+    //bones.push(Bone {
+    //    parent: None,
+    //    child_start: bone_child_idx.len() as _,
+    //    child_len: child_len as _,
+    //    ..Default::default()
+    //});
+
+    //while (true) {
+    //    let idx = bone_path_indices.last().unwrap();
+    //    let jobj = bone_jobjs[i];
+
+    //    if let Some(child) = jobj.get_child() {
+    //        bone_jobjs.push(child);
+    //        bones.push(Bone {
+    //            parent: Some(idx),
+    //            ..Default::default()
+    //        });
+
+    //        bones[idx].child
+    //    }
+    //}
+
+
+    //    let mut jobj = r_jobj;
+    //    let mut idx = bone_jobjs.len();
+    //    bone_jobjs.push(Bone {
+    //        parent: None,
+    //        ..Default::default()
+    //    });
+
+    //    while (idx < bone_jobjs.len()) {
+    //        let child_start = bone_jobjs.len();
+    //        let mut child_len = 0;
+
+    //        for child in jobj.children() {
+    //            bone_jobjs.push(Bone {
+    //                parent: Some(idx),
+    //                ..Default::default()
+    //            });
+    //        }
+
+    //        bone_jobj[idx].child_start = child_start as _;
+    //        bone_jobj[idx].child_len = child_len as _;
+    //        
+    //        idx += 1;
+    //    }
+
+    //    set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
+    //}
 
     // get meshes / primitives / vertices ------------------------------------------------------
     let mut builder = MeshBuilder {
