@@ -206,6 +206,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
     })
 }
 
+#[derive(Clone, Debug)]
 pub struct ModelBoneIndices {
     pub groups: Box<[(u16, u16)]>, // turned into model groups
     pub indices: Box<[u8]>,

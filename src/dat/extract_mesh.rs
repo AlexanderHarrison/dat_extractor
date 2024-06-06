@@ -11,9 +11,6 @@ use std::collections::HashMap;
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Bone {
     pub parent: Option<u16>,
-    pub child_start: u16,
-    pub child_len: u16, // zero if none
-
     pub pgroup_start: u16,
     pub pgroup_len: u16, // zero if none
 }
@@ -78,7 +75,6 @@ pub struct MeshBuilder {
 pub struct Model {
     // one for each bone
     pub bones: Box<[Bone]>,
-    pub bone_child_idx: Box<[u16]>,
     pub base_transforms: Box<[Mat4]>,
     pub inv_world_transforms: Box<[Mat4]>,
 
@@ -108,101 +104,35 @@ pub fn extract_model_from_jobj<'a>(
     high_poly_bone_indices: Option<&ModelBoneIndices> // extracts all if None
 ) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
-    let mut bone_child_idx = Vec::with_capacity(256);
     let mut bone_jobjs = Vec::with_capacity(128);
 
     // set child + parent idx --------------------------------------------------------
     fn set_bone_idx<'a, 'b>(
         bone_jobjs: &'a mut Vec<JOBJ<'b>>, 
-        bone_child_idx: &'a mut Vec<u16>, 
         bones: &'a mut Vec<Bone>, 
         parent: Option<u16>,
         jobj: JOBJ<'b>
-    ) -> u16 {
+    ) {
         let bone_idx = bones.len() as _;
         bone_jobjs.push(jobj.clone());
         bones.push(Bone::default());
 
-        let child_start = bone_child_idx.len();
-        let mut child_len = 0;
-        for _ in jobj.children() {
-            child_len += 1;
-            bone_child_idx.push(0); // set later
-        }
-
-        for (child_i, child_jobj) in jobj.children().enumerate() {
-            let child_idx = set_bone_idx(bone_jobjs, bone_child_idx, bones, Some(bone_idx), child_jobj);
-            bone_child_idx[child_start + child_i] = child_idx;
+        for child_jobj in jobj.children() {
+            set_bone_idx(bone_jobjs, bones, Some(bone_idx), child_jobj);
         }
 
         bones[bone_idx as usize] = Bone {
             parent,
-            child_start: child_start as _,
-            child_len,
 
             // set later
             pgroup_start: 0,
             pgroup_len: 0,
         };
-        bone_idx
     }
 
     for jobj in root_jobj.siblings() {
-        set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
+        set_bone_idx(&mut bone_jobjs, &mut bones, None, jobj);
     }
-
-    //let mut bone_path_indices = vec![0];
-    //bone_jobjs.push(r_jobj);
-    //let child_len = r_obj.children().count();
-    //bones.push(Bone {
-    //    parent: None,
-    //    child_start: bone_child_idx.len() as _,
-    //    child_len: child_len as _,
-    //    ..Default::default()
-    //});
-
-    //while (true) {
-    //    let idx = bone_path_indices.last().unwrap();
-    //    let jobj = bone_jobjs[i];
-
-    //    if let Some(child) = jobj.get_child() {
-    //        bone_jobjs.push(child);
-    //        bones.push(Bone {
-    //            parent: Some(idx),
-    //            ..Default::default()
-    //        });
-
-    //        bones[idx].child
-    //    }
-    //}
-
-
-    //    let mut jobj = r_jobj;
-    //    let mut idx = bone_jobjs.len();
-    //    bone_jobjs.push(Bone {
-    //        parent: None,
-    //        ..Default::default()
-    //    });
-
-    //    while (idx < bone_jobjs.len()) {
-    //        let child_start = bone_jobjs.len();
-    //        let mut child_len = 0;
-
-    //        for child in jobj.children() {
-    //            bone_jobjs.push(Bone {
-    //                parent: Some(idx),
-    //                ..Default::default()
-    //            });
-    //        }
-
-    //        bone_jobj[idx].child_start = child_start as _;
-    //        bone_jobj[idx].child_len = child_len as _;
-    //        
-    //        idx += 1;
-    //    }
-
-    //    set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
-    //}
 
     // get meshes / primitives / vertices ------------------------------------------------------
     let mut builder = MeshBuilder {
@@ -310,15 +240,9 @@ pub fn extract_model_from_jobj<'a>(
         *t = t.inverse();
     }
 
-    if high_poly_bone_indices.is_some() {
-        println!("bones: {}", bones.len());
-        println!("groups: {}", pgroups.len());
-    }
-
     // construct model ------------------------------------------------
     let model = Model {
         bones: bones.into_boxed_slice(),
-        bone_child_idx: bone_child_idx.into_boxed_slice(),
         base_transforms: base_transforms.into_boxed_slice(),
         phongs: phongs.into_boxed_slice(),
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),

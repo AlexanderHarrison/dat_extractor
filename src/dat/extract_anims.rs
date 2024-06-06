@@ -394,45 +394,6 @@ fn parse_aobj<T: TrackType>(aobj: HSDStruct) -> Box<[AnimTrack<T>]> {
     tracks.into_boxed_slice()
 }
 
-//pub fn extract_anims_from_actions(
-//    aj_dat: &DatFile,
-//    actions: Box<[FighterAction]>
-//) -> Result<Box<[Animation]>, DatExtractError> {
-//    let mut animations: Vec<Animation> = Vec::with_capacity(actions.len());
-//
-//    for action in actions.to_vec().into_iter() {
-//        let offset = action.animation_offset;
-//        let size = action.animation_size;
-//        let anim_data = &aj_dat.data[offset..offset+size];
-//
-//        // TODO might be discarding some animations??
-//        if let Some(name) = action.name {
-//            if animations.iter().all(|a| *a.name != *name) {
-//                let stream = Stream::new(anim_data);
-//                let hsd_file = HSDRawFile::open(stream);
-//
-//                // likely no other roots
-//                let anim_root = &hsd_file.roots[0];
-//                assert!(anim_root.root_string.contains("figatree"));
-//
-//                let figatree = FigaTree::new(anim_root.hsd_struct.clone());
-//
-//                let frame_count = figatree.frame_count();
-//
-//                let animation = Animation {
-//                    name,
-//                    transforms: extract_anim_transforms(figatree),
-//                    end_frame: frame_count,
-//                    flags: 0,
-//                };
-//
-//                animations.push(animation);
-//            }
-//        }
-//    }
-//
-//    Ok(animations.into_boxed_slice())
-//}
 pub fn extract_anim_from_action( 
     aj_dat: &DatFile,
     fighter_action_struct: HSDStruct,
