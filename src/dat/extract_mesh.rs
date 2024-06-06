@@ -119,8 +119,8 @@ pub fn extract_model_from_jobj<'a>(
         parent: Option<u16>,
         jobj: JOBJ<'b>
     ) -> u16 {
-        bone_jobjs.push(jobj.clone());
         let bone_idx = bones.len() as _;
+        bone_jobjs.push(jobj.clone());
         bones.push(Bone::default());
 
         let child_start = bone_child_idx.len();
