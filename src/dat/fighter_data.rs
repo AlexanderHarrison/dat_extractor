@@ -261,6 +261,20 @@ fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAct
         .and_then(|s| Some(parse_string(s)?.to_string().into_boxed_str()));
 
     let animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
+    //let mut animation = None;
+    //if name.as_deref().map(|n| n.contains("Wait1")) == Some(true) {
+    //if name.as_deref().map(|n| n.contains("AttackHi3")) == Some(true) {
+    //    animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
+    //    //for b in animation.as_mut().unwrap().bone_transforms.iter_mut() {
+    //    //    if b.bone_index == 20 {
+    //    //        b.tracks[0].keys[0].value = 0.0;
+    //    //        for track in b.tracks.iter_mut() {
+    //    //            println!("{:?}", track);
+    //    //        }
+    //    //    }
+    //    //}
+    //}
+
     let subactions = hsd_struct
         .try_get_reference(0x0C)
         .map(|sub| {

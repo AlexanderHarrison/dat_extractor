@@ -1,6 +1,6 @@
 use crate::dat::*;
 
-use glam::f32::{Quat, Mat4, Vec3, Vec4};
+use glam::f32::{Quat, Mat4, Vec3};
 
 pub fn demangle_anim_name(name: &str) -> Option<&str> {
     // PlyFox5K_Share_ACTION_WallDamage_figatree => WallDamage
@@ -265,29 +265,29 @@ pub struct Key {
     pub out_tan: f32,
 }
 
-#[derive(Copy, Clone, Debug)]
-struct AnimState {
-    pub t0: f32,
-    pub t1: f32,
-    pub p0: f32,
-    pub p1: f32,
-    pub d0: f32,
-    pub d1: f32,
-    pub _op: MeleeInterpolationType,
-    pub op_intrp: MeleeInterpolationType, // idk
-}
-
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Copy, Clone, Debug)]
-pub enum MeleeInterpolationType {
-    //NONE,
-    CON  { value: f32, time: u16 },
-    LIN  { value: f32, time: u16 },
-    SPL0 { value: f32, time: u16 },
-    SPL  { value: f32, tan: f32, time: u16 },
-    SLP  { tan: f32 },
-    KEY  { value: f32 },
-}
+//#[derive(Copy, Clone, Debug)]
+//struct AnimState {
+//    pub t0: f32,
+//    pub t1: f32,
+//    pub p0: f32,
+//    pub p1: f32,
+//    pub d0: f32,
+//    pub d1: f32,
+//    pub _op: MeleeInterpolationType,
+//    pub op_intrp: MeleeInterpolationType, // idk
+//}
+//
+//#[allow(clippy::upper_case_acronyms)]
+//#[derive(Copy, Clone, Debug)]
+//pub enum MeleeInterpolationType {
+//    //NONE,
+//    CON  { value: f32, time: u16 },
+//    LIN  { value: f32, time: u16 },
+//    SPL0 { value: f32, time: u16 },
+//    SPL  { value: f32, tan: f32, time: u16 },
+//    SLP  { tan: f32 },
+//    KEY  { value: f32 },
+//}
 
 #[derive(Copy, Clone, Debug)]
 pub enum InterpolationType {
@@ -409,9 +409,10 @@ pub fn extract_anim_from_action(
     let anim_root = &hsd_file.roots[0];
     let figatree = FigaTree::new(anim_root.hsd_struct.clone());
     let frame_count = figatree.frame_count();
+    let bone_transforms = extract_figatree_transforms(figatree);
 
     Some(Animation {
-        bone_transforms: extract_figatree_transforms(figatree),
+        bone_transforms,
         material_transforms: Vec::new(),
         end_frame: frame_count,
         flags: 0,
@@ -430,6 +431,9 @@ impl Animation {
             let bone_index = transform.bone_index;
             let base_transform = &model.base_transforms[bone_index];
             let f = transform.compute_frame_at(frame_num, base_transform);
+            //if bone_index == 19 {
+            //    println!("{:?}", f.transform.to_scale_rotation_translation().1.to_euler(glam::EulerRot::ZYX));
+            //}
             prev_frame.animated_transforms[bone_index] = f.transform;
         }
 
@@ -530,7 +534,9 @@ impl AnimTransformBone {
         let (rz, ry, rx) = qrot.to_euler(glam::EulerRot::ZYX);
         let mut euler_rotation = Vec3 { x: rx, y: ry, z: rz };
 
+        // idx
         if frame < 0.0 { frame = 0.0; }
+        frame += 0.001; // avoid issues with exact frames
 
         use TrackTypeBone::*;
         for track in self.tracks.iter() {
@@ -746,8 +752,6 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
 
     let mut keys = Vec::new();
 
-    let mut in_tan = 0.0;
-
     // Tools/FOBJ_Decoder.cs:55 (GetKeys)
     while !stream.finished() {
         let typ = read_packed(stream);
@@ -764,11 +768,10 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
                         frame,
                         value,
                         interpolation: InterpolationType::Step,
-                        in_tan,
+                        in_tan: 0.0,
                         out_tan: 0.0,
                     });
                     frame += read_packed(stream) as f32;
-                    in_tan = 0.0;
                 }
                 0x02 => {
                     let value = parse_float(stream, value_format, value_scale);
@@ -776,43 +779,39 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
                         frame,
                         value,
                         interpolation: InterpolationType::Linear,
-                        in_tan,
+                        in_tan: 0.0,
                         out_tan: 0.0,
                     });
                     frame += read_packed(stream) as f32;
-                    in_tan = 0.0;
                 }
-                0x03 => {
+                0x03 => { // SPL0
                     let value = parse_float(stream, value_format, value_scale);
-                    //MeleeInterpolationType::SPL0 { value, time }
                     keys.push(Key {
                         frame,
                         value,
                         interpolation: InterpolationType::Hermite,
-                        in_tan,
+                        in_tan: 0.0,
                         out_tan: 0.0,
                     });
                     frame += read_packed(stream) as f32;
-                    in_tan = 0.0;
                 }
-                0x04 => {
+                0x04 => { // SPL
+                    // NOT SURE ABOUT THIS, BUT I TRIED A LOT AND THIS LOOKED THE BEST
+                    // in_tan might not be 'tan'
                     let value = parse_float(stream, value_format, value_scale);
                     let tan = parse_float(stream, tan_format, tan_scale);
-                    ////MeleeInterpolationType::SPL { value, tan, time }
                     keys.push(Key {
                         frame,
                         value,
                         interpolation: InterpolationType::Hermite,
                         in_tan: tan,
-                        out_tan: 0.0,
+                        out_tan: tan,
                     });
                     frame += read_packed(stream) as f32;
-                    in_tan = 0.0;
                 }
-                0x05 => {
+                0x05 => { // SLP
                     let tan = parse_float(stream, tan_format, tan_scale);
-                    //keys.last_mut().unwrap().out_tan = tan;
-                    //MeleeInterpolationType::SLP { tan }
+                    keys.last_mut().unwrap().out_tan = tan;
                 }
                 0x06 => { // not used so far
                     eprintln!("unused key frame!");
@@ -1019,67 +1018,67 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
 //    }
 //}
 
-fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
-    let mut t0 = 0.0;
-    let mut t1 = 0.0;
-    let mut p0 = 0.0;
-    let mut p1 = 0.0;
-    let mut d0 = 0.0;
-    let mut d1 = 0.0;
-
-    let mut op = MeleeInterpolationType::CON { time: 0, value: 0.0 };
-    let mut op_intrp = MeleeInterpolationType::CON { time: 0, value: 0.0 };
-
-    for (kframe, interpolation) in keys.iter().copied() {
-        op_intrp = op;
-        op = interpolation;
-
-        match op {
-            MeleeInterpolationType::CON { value, .. } | MeleeInterpolationType::LIN { value, ..} => {
-                p0 = p1;
-                p1 = value;
-                if !matches!(op_intrp, MeleeInterpolationType::SLP { .. }) {
-                    d0 = d1;
-                    d1 = 0.0;
-                }
-                t0 = t1;
-                t1 = kframe
-            }
-            MeleeInterpolationType::SPL0 { value, .. } => {
-                p0 = p1;
-                p1 = value;
-                d0 = d1;
-                d1 = 0.0;
-                t0 = t1;
-                t1 = kframe;
-            }
-            MeleeInterpolationType::SPL { value, tan, .. } => {
-                p0 = p1;
-                p1 = value;
-                d0 = d1;
-                d1 = tan;
-                t0 = t1;
-                t1 = kframe;
-            }
-            MeleeInterpolationType::SLP { tan, .. } => {
-                d0 = d1;
-                d1 = tan;
-            }
-            MeleeInterpolationType::KEY { value, .. } => {
-                p0 = value;
-                p1 = value;
-            }
-        }
-
-        if t1 > frame && !matches!(interpolation, MeleeInterpolationType::SLP {..}) {
-            break
-        }
-
-        op_intrp = interpolation;
-    }
-
-    AnimState { t0, t1, p0, p1, d0, d1, _op: op, op_intrp }
-}
+//fn get_state(keys: &[(f32, MeleeInterpolationType)], frame: f32) -> AnimState {
+//    let mut t0 = 0.0;
+//    let mut t1 = 0.0;
+//    let mut p0 = 0.0;
+//    let mut p1 = 0.0;
+//    let mut d0 = 0.0;
+//    let mut d1 = 0.0;
+//
+//    let mut op = MeleeInterpolationType::CON { time: 0, value: 0.0 };
+//    let mut op_intrp = MeleeInterpolationType::CON { time: 0, value: 0.0 };
+//
+//    for (kframe, interpolation) in keys.iter().copied() {
+//        op_intrp = op;
+//        op = interpolation;
+//
+//        match op {
+//            MeleeInterpolationType::CON { value, .. } | MeleeInterpolationType::LIN { value, ..} => {
+//                p0 = p1;
+//                p1 = value;
+//                if !matches!(op_intrp, MeleeInterpolationType::SLP { .. }) {
+//                    d0 = d1;
+//                    d1 = 0.0;
+//                }
+//                t0 = t1;
+//                t1 = kframe
+//            }
+//            MeleeInterpolationType::SPL0 { value, .. } => {
+//                p0 = p1;
+//                p1 = value;
+//                d0 = d1;
+//                d1 = 0.0;
+//                t0 = t1;
+//                t1 = kframe;
+//            }
+//            MeleeInterpolationType::SPL { value, tan, .. } => {
+//                p0 = p1;
+//                p1 = value;
+//                d0 = d1;
+//                d1 = tan;
+//                t0 = t1;
+//                t1 = kframe;
+//            }
+//            MeleeInterpolationType::SLP { tan, .. } => {
+//                d0 = d1;
+//                d1 = tan;
+//            }
+//            MeleeInterpolationType::KEY { value, .. } => {
+//                p0 = value;
+//                p1 = value;
+//            }
+//        }
+//
+//        if t1 > frame && !matches!(interpolation, MeleeInterpolationType::SLP {..}) {
+//            break
+//        }
+//
+//        op_intrp = interpolation;
+//    }
+//
+//    AnimState { t0, t1, p0, p1, d0, d1, _op: op, op_intrp }
+//}
 
 fn lerp(av: f32, bv: f32, v0: f32, v1: f32, t: f32) -> f32 {
     if v0 == v1 { return av };
