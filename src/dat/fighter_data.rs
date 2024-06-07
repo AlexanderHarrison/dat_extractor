@@ -3,6 +3,7 @@ use crate::dat::{
     HSDRawFile, Animation, extract_anim_from_action, extract_character_model,
 };
 use crate::parse_string;
+use slp_parser::Character;
 
 #[derive(Debug, Clone)]
 pub struct FighterData {
@@ -10,6 +11,7 @@ pub struct FighterData {
     pub model: Model,
 
     pub attributes: FighterAttributes,
+    //pub specific_attributes: FighterSpecificAttributes,
     pub articles: Box<[Article]>,
     pub action_table: Box<[FighterAction]>,
 
@@ -29,6 +31,108 @@ pub struct FighterAttributes {
     pub shield_bone: u16,
     pub item_hold_bone: u16,
     pub shield_size: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SwordTrailInfo {
+    pub colour_1_rgba: [u8; 4],
+    pub colour_2_rgba: [u8; 4],
+    pub bone: u32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl SwordTrailInfo {
+    pub fn parse(bytes: &[u8]) -> Self {
+        SwordTrailInfo {
+            colour_1_rgba: [ bytes[2], bytes[3], bytes[4], bytes[1] ],
+            colour_2_rgba: [ bytes[6], bytes[7], bytes[8], bytes[5] ],
+            bone: u32::from_be_bytes(bytes[12..16].try_into().unwrap()),
+            width: f32::from_be_bytes(bytes[16..20].try_into().unwrap()),
+            height: f32::from_be_bytes(bytes[24..28].try_into().unwrap()),
+        }
+    }
+}
+
+// https://drive.google.com/drive/folders/1iNdlRJe8hHq4Ew1IPOf9Ad0E4_MTrGwr
+#[derive(Debug, Clone)]
+pub enum FighterSpecificAttributes {
+    Mario          {},
+    Fox            {},
+    CaptainFalcon  {},
+    DonkeyKong     {},
+    Kirby          {},
+    Bowser         {},
+    Link           {
+        sword_trail: SwordTrailInfo,
+    },
+    Sheik          {},
+    Ness           {},
+    Peach          {},
+    IceClimbers    {},
+    Pikachu        {},
+    Samus          {},
+    Yoshi          {},
+    Jigglypuff     {},
+    Mewtwo         {},
+    Luigi          {},
+    Marth          {
+        sword_trail: SwordTrailInfo,
+    },
+    Zelda          {},
+    YoungLink      {
+        sword_trail: SwordTrailInfo,
+    },
+    DrMario        {},
+    Falco          {},
+    Pichu          {},
+    MrGameAndWatch {},
+    Ganondorf      {},
+    Roy            {
+        sword_trail: SwordTrailInfo,
+    },
+}
+
+impl FighterSpecificAttributes {
+    pub fn parse(attribute_data: &[u8], ch: Character) -> Self {
+        match ch {
+            Character::Mario          => FighterSpecificAttributes::Mario          {},
+            Character::Fox            => FighterSpecificAttributes::Fox            {},
+            Character::CaptainFalcon  => FighterSpecificAttributes::CaptainFalcon  {},
+            Character::DonkeyKong     => FighterSpecificAttributes::DonkeyKong     {},
+            Character::Kirby          => FighterSpecificAttributes::Kirby          {},
+            Character::Bowser         => FighterSpecificAttributes::Bowser         {},
+            Character::Link           => FighterSpecificAttributes::Link           {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x006C..0x0084]),
+            },
+            Character::Sheik          => FighterSpecificAttributes::Sheik          {},
+            Character::Ness           => FighterSpecificAttributes::Ness           {},
+            Character::Peach          => FighterSpecificAttributes::Peach          {},
+            Character::Nana 
+                | Character::Popo     => FighterSpecificAttributes::IceClimbers    {},
+            Character::Pikachu        => FighterSpecificAttributes::Pikachu        {},
+            Character::Samus          => FighterSpecificAttributes::Samus          {},
+            Character::Yoshi          => FighterSpecificAttributes::Yoshi          {},
+            Character::Jigglypuff     => FighterSpecificAttributes::Jigglypuff     {},
+            Character::Mewtwo         => FighterSpecificAttributes::Mewtwo         {},
+            Character::Luigi          => FighterSpecificAttributes::Luigi          {},
+            Character::Marth          => FighterSpecificAttributes::Marth          {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x0080..0x0098]),
+            },
+            Character::Zelda          => FighterSpecificAttributes::Zelda          {},
+            Character::YoungLink      => FighterSpecificAttributes::YoungLink      {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x006C..0x0084]),
+            },
+            Character::DrMario        => FighterSpecificAttributes::DrMario        {},
+            Character::Falco          => FighterSpecificAttributes::Falco          {},
+            Character::Pichu          => FighterSpecificAttributes::Pichu          {},
+            Character::MrGameAndWatch => FighterSpecificAttributes::MrGameAndWatch {},
+            Character::Ganondorf      => FighterSpecificAttributes::Ganondorf      {},
+            Character::Roy            => FighterSpecificAttributes::Roy            {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x0080..0x0098]),
+            },
+        }
+    }
 }
 
 // SBM_FighterData.cs
@@ -179,7 +283,11 @@ impl<'a> FighterDataRoot<'a> {
 
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
-pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
+pub fn parse_fighter_data(
+    fighter_dat: &DatFile, 
+    anim_dat: &DatFile, 
+    model_dat: &DatFile
+) -> Option<FighterData> {
     let fighter_hsdfile = HSDRawFile::new(fighter_dat);
 
     let fighter_root_node = &fighter_hsdfile.roots[0];
@@ -190,6 +298,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
+    //let specific_attributes
     let ecb_bones = fighter_data_root.ecb_bones();
     let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);
@@ -200,6 +309,7 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         model,
         attributes,
+        //specific_attributes,
         articles,
         action_table,
         ecb_bones,
