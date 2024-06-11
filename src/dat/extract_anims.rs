@@ -946,7 +946,7 @@ impl AnimDataFormat {
 
 impl<'a> Track<'a> {
     pub fn track_type(&self) -> TrackTypeBone {
-        TrackTypeBone::from_u8(self.hsd_struct.get_i8(0x04) as u8).unwrap()
+        TrackTypeBone::from_u8(self.hsd_struct.get_u8(0x04)).unwrap()
     }
 
     pub fn value_flag(&self) -> u8 {
@@ -1007,6 +1007,11 @@ impl<'a> FigaTree<'a> {
             for j in 0..track_count as usize {
                 let track_index = offset + j;
                 let track = track_data.get_embedded_struct(track_index * 0x0C, 0x0C);
+                let track_type = track.get_u8(0x04);
+                if TrackTypeBone::from_u8(track_type) == None {
+                    println!("unused figatree track {}", track_type);
+                    continue;
+                }
                 tracks.push(Track { hsd_struct: track });
             }
 

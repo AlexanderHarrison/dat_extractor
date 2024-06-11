@@ -11,7 +11,7 @@ pub struct FighterData {
     pub model: Model,
 
     pub attributes: FighterAttributes,
-    //pub specific_attributes: FighterSpecificAttributes,
+    pub specific_attributes: FighterSpecificAttributes,
     pub articles: Box<[Article]>,
     pub action_table: Box<[FighterAction]>,
 
@@ -49,7 +49,7 @@ impl SwordTrailInfo {
             colour_2_rgba: [ bytes[6], bytes[7], bytes[8], bytes[5] ],
             bone: u32::from_be_bytes(bytes[12..16].try_into().unwrap()),
             width: f32::from_be_bytes(bytes[16..20].try_into().unwrap()),
-            height: f32::from_be_bytes(bytes[24..28].try_into().unwrap()),
+            height: f32::from_be_bytes(bytes[20..24].try_into().unwrap()),
         }
     }
 }
@@ -286,7 +286,8 @@ impl<'a> FighterDataRoot<'a> {
 pub fn parse_fighter_data(
     fighter_dat: &DatFile, 
     anim_dat: &DatFile, 
-    model_dat: &DatFile
+    model_dat: &DatFile,
+    character: Character,
 ) -> Option<FighterData> {
     let fighter_hsdfile = HSDRawFile::new(fighter_dat);
 
@@ -298,7 +299,10 @@ pub fn parse_fighter_data(
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
-    //let specific_attributes
+    let specific_attributes = FighterSpecificAttributes::parse(
+        fighter_root_node.hsd_struct.get_buffer(0x04),
+        character,
+    );
     let ecb_bones = fighter_data_root.ecb_bones();
     let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);
@@ -309,7 +313,7 @@ pub fn parse_fighter_data(
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         model,
         attributes,
-        //specific_attributes,
+        specific_attributes,
         articles,
         action_table,
         ecb_bones,

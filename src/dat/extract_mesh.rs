@@ -4,7 +4,6 @@ use crate::dat::{
     Animation, parse_joint_anim, parse_mat_anim, Phong, RenderModeFlags
 };
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
-use glam::u32::UVec4;
 
 use std::collections::HashMap;
 
@@ -42,25 +41,84 @@ pub enum PrimitiveType {
     Quads = 0x80
 }
 
+/// I hate messing with wgsl <-> rust alignment
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Vertex {
-    pub pos: Vec3,
-    pub uv: Vec2,
-    pub normal: Vec3,
-    pub weights: Vec4,
-    pub bones: UVec4,
-    pub colour: Vec4,
+    // pos: [f32; 3]
+    // uv: [f32; 2]
+    // normal: [f32; 3]
+    // weights: [f32; 6]
+    // bones: [u32; 6]
+    // colour: [f32; 4]
+    pub raw: [u8; Vertex::NUM_BYTES],
 }
+
 impl Vertex {
+    // 24 * 4 bytes
+    const NUM_BYTES: usize = (3+2+3+6+6+4) * 4;
+
     pub const ZERO: Vertex = Vertex {
-        pos: Vec3::ZERO,
-        uv: Vec2::ZERO,
-        normal: Vec3::ZERO,
-        weights: Vec4::ZERO,
-        bones: UVec4::ZERO,
-        colour: Vec4::ZERO,
+        raw: [0u8; Vertex::NUM_BYTES],
     };
+
+    pub fn from_parts(
+        pos: [f32; 3],
+        uv: [f32; 2],
+        normal: [f32; 3],
+        weights: [f32; 6],
+        bones: [u32; 6],
+        colour: [f32; 4],
+    ) -> Self {
+        let mut raw = [0u8; Vertex::NUM_BYTES];
+        raw[0*4..3*4].copy_from_slice(bytemuck::cast_slice(&pos));
+        raw[3*4..5*4].copy_from_slice(bytemuck::cast_slice(&uv));
+        raw[5*4..8*4].copy_from_slice(bytemuck::cast_slice(&normal));
+        raw[8*4..14*4].copy_from_slice(bytemuck::cast_slice(&weights));
+        raw[14*4..20*4].copy_from_slice(bytemuck::cast_slice(&bones));
+        raw[20*4..24*4].copy_from_slice(bytemuck::cast_slice(&colour));
+        Vertex { raw }
+    }
+
+    #[inline(always)]
+    fn f32_i(self, i: usize) -> f32 {
+        return f32::from_ne_bytes(self.raw[i*4..i*4+4].try_into().unwrap());
+    }
+
+    #[inline(always)]
+    fn u32_i(self, i: usize) -> u32 {
+        return u32::from_ne_bytes(self.raw[i*4..i*4+4].try_into().unwrap());
+    }
+
+    pub fn pos(self) -> Vec3 {
+        Vec3::new(self.f32_i(0), self.f32_i(1), self.f32_i(2))
+    }
+
+    pub fn uv(self) -> Vec2 {
+        Vec2::new(self.f32_i(3), self.f32_i(4))
+    }
+
+    pub fn normal(self) -> Vec3 {
+        Vec3::new(self.f32_i(5), self.f32_i(6), self.f32_i(7))
+    }
+
+    pub fn weights(self) -> [f32; 6] {
+        [
+            self.f32_i(8), self.f32_i(9), self.f32_i(10),
+            self.f32_i(11), self.f32_i(12), self.f32_i(13),
+        ]
+    }
+
+    pub fn bones(self) -> [u32; 6] {
+        [
+            self.u32_i(14), self.u32_i(15), self.u32_i(16),
+            self.u32_i(17), self.u32_i(18), self.u32_i(19),
+        ]
+    }
+    
+    pub fn colour(self) -> Vec4 {
+        Vec4::new(self.f32_i(20), self.f32_i(21), self.f32_i(22), self.f32_i(24))
+    }
 }
 
 unsafe impl bytemuck::NoUninit for Vertex {}

@@ -22,7 +22,7 @@ pub struct POBJ<'a> {
 pub struct Attribute<'a> {
     pub name: AttributeName,
     pub typ: AttributeType,
-    pub comp_type: CompType,
+    pub comp_type: u8, // either CompTypeColour, or CompTypeFormat
     pub hsd_struct: HSDStruct<'a>,
 }
 
@@ -59,17 +59,12 @@ impl<'a> Attribute<'a> {
         Self { 
             name: AttributeName::from_u8(hsd_struct.get_i32(0x00) as u8),
             typ: AttributeType::from_u8(hsd_struct.get_i32(0x04) as u8),
-            comp_type: CompType::from_u8(hsd_struct.get_i32(0x0C) as u8),
+            comp_type: hsd_struct.get_u32(0x0C) as u8,
             hsd_struct,
         }
     }
     
     pub fn get_decoded_data_at(&self, data: &mut Vec<f32>, loc: usize) {
-        if self.name == AttributeName::GX_VA_CLR0 || self.name == AttributeName::GX_VA_CLR1 {
-            todo!();
-            //return GetColorAt(index);
-        }
-
         data.clear();
 
         let stride = self.hsd_struct.get_i16(0x12) as usize;
@@ -77,44 +72,49 @@ impl<'a> Attribute<'a> {
 
         let buffer = self.hsd_struct.get_reference(0x14);
 
-        match self.comp_type {
-            CompType::UInt8 => {
-                for i in 0..stride {
-                    let f = buffer.get_u8(offset + i) as f32; 
-                    data.push(f);
+        if self.name == AttributeName::GX_VA_CLR0 || self.name == AttributeName::GX_VA_CLR1 {
+            let stream = crate::dat::Stream::new(&buffer.data[offset..]);
+            data.extend_from_slice(&read_direct_colour(&stream, self.comp_type));
+        } else {
+            match CompTypeFormat::from_u8(self.comp_type) {
+                CompTypeFormat::UInt8 => {
+                    for i in 0..stride {
+                        let f = buffer.get_u8(offset + i) as f32; 
+                        data.push(f);
+                    }
+                } 
+                CompTypeFormat::Int8 => {
+                    for i in 0..stride {
+                        let f = buffer.get_i8(offset + i) as f32; 
+                        data.push(f);
+                    }
                 }
-            } 
-            CompType::Int8 => {
-                for i in 0..stride {
-                    let f = buffer.get_i8(offset + i) as f32; 
-                    data.push(f);
+                CompTypeFormat::UInt16 => { 
+                    for i in 0..(stride / 2) {
+                        let f = buffer.get_u16(offset + i*2) as f32; 
+                        data.push(f);
+                    }
                 }
+                CompTypeFormat::Int16 => {
+                    for i in 0..(stride / 2) {
+                        let f = buffer.get_i16(offset + i*2) as f32; 
+                        data.push(f);
+                    }
+                }
+                CompTypeFormat::Float => {
+                    for i in 0..(stride / 4) {
+                        let f = buffer.get_f32(offset + i*4);
+                        data.push(f);
+                    }
+                }
+                CompTypeFormat::Unused => panic!("invalid comp type"),
             }
-            CompType::UInt16 => { 
-                for i in 0..(stride / 2) {
-                    let f = buffer.get_u16(offset + i*2) as f32; 
-                    data.push(f);
-                }
-            }
-            CompType::Int16 => {
-                for i in 0..(stride / 2) {
-                    let f = buffer.get_i16(offset + i*2) as f32; 
-                    data.push(f);
-                }
-            }
-            CompType::Float => {
-                for i in 0..(stride / 4) {
-                    let f = buffer.get_f32(offset + i*4);
-                    data.push(f);
-                }
-            }
-            CompType::Unused => panic!("invalid comp type"),
-        }
 
 
-        let scale = self.hsd_struct.get_i8(0x10) as usize;
-        for f in data.iter_mut() {
-            *f /= (1 << scale) as f32
+            let scale = self.hsd_struct.get_i8(0x10) as usize;
+            for f in data.iter_mut() {
+                *f /= (1 << scale) as f32
+            }
         }
     }
 }
@@ -130,10 +130,10 @@ impl<'a> Envelope<'a> {
 
     // SBHsdMesh.cs:286 (GXVertexToHsdVertex)
     // HSD_Envelope.cs:13,56 (Weights, GetWeightAt)
-    pub fn weights(&self) -> [f32; 4] {
-        let mut weights = [0.0f32; 4];
+    pub fn weights(&self) -> [f32; 6] {
+        let mut weights = [0.0f32; 6];
         let len = self.hsd_struct.reference_count();
-        assert!(len <= 4);
+        assert!(len <= 6);
 
         for i in 0..len {
             weights[i] = self.hsd_struct.get_f32(i*8 + 4);
@@ -244,8 +244,8 @@ impl<'a> POBJ<'a> {
             // add vertices ------------------------------------------------
             for _ in 0..vert_len {
                 let mut pos = [0f32; 3];
-                let mut bones = [0u32; 4];
-                let mut weights = [0f32; 4];
+                let mut bones = [0u32; 6];
+                let mut weights = [0f32; 6];
                 let mut tex0 = [0f32; 2];
                 let mut normal = [0f32; 3];
                 let mut colour = [0f32; 4];
@@ -301,6 +301,12 @@ impl<'a> POBJ<'a> {
                                 normal[2] = data[2];
                                 // bitan + tan as well
                             }
+                            AttributeName::GX_VA_CLR0 => {
+                                colour[0] = data[0];
+                                colour[1] = data[1];
+                                colour[2] = data[2];
+                                colour[3] = data[3];
+                            }
                             _ => (), // TODO
                         }
                     } else {
@@ -327,15 +333,7 @@ impl<'a> POBJ<'a> {
                     }
                 }
 
-                let vertex = Vertex {
-                    pos: pos.into(),
-                    uv: tex0.into(),
-                    normal: normal.into(),
-                    bones: bones.into(),
-                    weights: weights.into(),
-                    colour: colour.into(),
-                };
-
+                let vertex = Vertex::from_parts(pos, tex0, normal, weights, bones, colour);
                 let cache_start = builder.vertices.len().saturating_sub(32);
                 if let Some(v_i) = builder.vertices[cache_start..].iter().copied().position(|v| v == vertex) {
                     primitive_indices.push((cache_start + v_i) as u16);
@@ -404,40 +402,40 @@ impl<'a> POBJ<'a> {
 }
 
 // GX/GX_PrimitiveGroup.cs:107 (ReadDirectGXColor)
-fn read_direct_colour(reader: &crate::dat::Stream<'_>, comp_type: CompType) -> [f32; 4] {
+fn read_direct_colour(reader: &crate::dat::Stream<'_>, comp_type: u8) -> [f32; 4] {
     let b1: u8;
     let b2: u8;
     let b3: u8;
     let b4: u8;
 
-    match comp_type {
-        CompType::UInt8 => { // GX_RGB565
-            let b = reader.read_i16();
+    match CompTypeColour::from_u8(comp_type) {
+        CompTypeColour::RGB565 => {
+            let b = reader.read_u16();
             b1 = ((((b >> 11) & 0x1F) << 3) | (((b >> 11) & 0x1F) >> 2)) as u8;
             b2 = ((((b >> 5) & 0x3F) << 2) | (((b >> 5) & 0x3F) >> 4)) as u8;
             b3 = (((b & 0x1F) << 3) | ((b & 0x1F) >> 2)) as u8;
             b4 = 255;
         }
-        CompType::Int8 => { // GX_RGB888
+        CompTypeColour::RGB8 => {
             b1 = reader.read_byte();
             b2 = reader.read_byte();
             b3 = reader.read_byte();
             b4 = 255;
         }
-        CompType::UInt16 => { // GX_RGBX888
+        CompTypeColour::RGBX8 => {
             b1 = reader.read_byte();
             b2 = reader.read_byte();
             b3 = reader.read_byte();
             b4 = reader.read_byte();
         }
-        CompType::Int16 => { // GX_RGBA4
-            let b = reader.read_i16();
+        CompTypeColour::RGBA4 => {
+            let b = reader.read_u16();
             b1 = ((((b >> 12) & 0xF) << 4) | ((b >> 12) & 0xF)) as u8;
             b2 = ((((b >> 8) & 0xF) << 4) | ((b >> 8) & 0xF)) as u8;
             b3 = ((((b >> 4) & 0xF) << 4) | ((b >> 4) & 0xF)) as u8;
             b4 = (((b & 0xF) << 4) | (b & 0xF)) as u8;
         }
-        CompType::Float => { // GX_RGBA6
+        CompTypeColour::RGBA6 => {
             let b = ((reader.read_byte() as u32) << 16) 
                 | ((reader.read_byte() as u32) << 8) 
                 | (reader.read_byte() as u32);
@@ -446,8 +444,7 @@ fn read_direct_colour(reader: &crate::dat::Stream<'_>, comp_type: CompType) -> [
             b3 = ((((b >> 6) & 0x3F) << 2) | (((b >> 6) & 0x3F) >> 4)) as u8;
             b4 = (((b & 0x3F) << 2) | ((b & 0x3F) >> 4)) as u8;
         }
-        CompType::Unused => { // GX_RGBX888 
-            // This is necessary for some reason...
+        CompTypeColour::RGBA8 => {
             b1 = reader.read_byte();
             b2 = reader.read_byte();
             b3 = reader.read_byte();
@@ -645,7 +642,7 @@ pub enum AttributeName {
 
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CompType {
+pub enum CompTypeFormat {
     UInt8 = 0,
     Int8 = 1,
     UInt16 = 2,
@@ -654,7 +651,7 @@ pub enum CompType {
     Unused = 5, // actually used LMAO wtf
 }
 
-impl CompType {
+impl CompTypeFormat {
     pub fn from_u8(n: u8) -> Self {
         match n {
             0 => Self::UInt8,
@@ -663,6 +660,31 @@ impl CompType {
             3 => Self::Int16,
             4 => Self::Float,
             5 => Self::Unused,
+            _ => panic!("unknown comp type")
+        }
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CompTypeColour {
+    RGB565 = 0,
+    RGB8 = 1,
+    RGBX8 = 2,
+    RGBA4 = 3,
+    RGBA6 = 4,
+    RGBA8 = 5,
+}
+
+impl CompTypeColour {
+    pub fn from_u8(n: u8) -> Self {
+        match n {
+            0 => Self::RGB565,
+            1 => Self::RGB8,
+            2 => Self::RGBX8,
+            3 => Self::RGBA4,
+            4 => Self::RGBA6,
+            5 => Self::RGBA8,
             _ => panic!("unknown comp type")
         }
     }
