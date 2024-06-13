@@ -45,8 +45,9 @@ pub struct SwordTrailInfo {
 impl SwordTrailInfo {
     pub fn parse(bytes: &[u8]) -> Self {
         SwordTrailInfo {
-            colour_1_rgba: [ bytes[2], bytes[3], bytes[4], bytes[1] ],
-            colour_2_rgba: [ bytes[6], bytes[7], bytes[8], bytes[5] ],
+            // alpha stored reverse for some reason
+            colour_1_rgba: [ bytes[2], bytes[3], bytes[4], 255 - bytes[1] ],
+            colour_2_rgba: [ bytes[6], bytes[7], bytes[8], 255 - bytes[5] ],
             bone: u32::from_be_bytes(bytes[12..16].try_into().unwrap()),
             width: f32::from_be_bytes(bytes[16..20].try_into().unwrap()),
             height: f32::from_be_bytes(bytes[20..24].try_into().unwrap()),
@@ -55,7 +56,7 @@ impl SwordTrailInfo {
 }
 
 // https://drive.google.com/drive/folders/1iNdlRJe8hHq4Ew1IPOf9Ad0E4_MTrGwr
-#[derive(Debug, Clone)]
+#[derive(Copy, Debug, Clone)]
 pub enum FighterSpecificAttributes {
     Mario          {},
     Fox            {},
@@ -182,6 +183,10 @@ impl<'a> FighterDataRoot<'a> {
         }
     }
 
+    pub fn specific_attributes(&self, c: Character) -> FighterSpecificAttributes {
+        FighterSpecificAttributes::parse(self.hsd_struct.get_buffer(0x04), c)
+    }
+
     pub fn articles(&self) -> Option<Box<[Article]>> {
         let article_ptrs = match self.hsd_struct.try_get_reference(0x48) {
             Some(ptrs) => ptrs,
@@ -299,10 +304,7 @@ pub fn parse_fighter_data(
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
-    let specific_attributes = FighterSpecificAttributes::parse(
-        fighter_root_node.hsd_struct.get_buffer(0x04),
-        character,
-    );
+    let specific_attributes = fighter_data_root.specific_attributes(character);
     let ecb_bones = fighter_data_root.ecb_bones();
     let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);

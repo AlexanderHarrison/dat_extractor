@@ -92,7 +92,6 @@ impl AnimationFrame {
         }
 
         for (i, animated_transform) in self.animated_transforms.iter().copied().enumerate() {
-
             let animated_world_transform = match model.bones[i].parent {
                 Some(p_i) => self.animated_world_transforms[p_i as usize] * animated_transform,
                 None => animated_transform
