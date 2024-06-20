@@ -2,6 +2,8 @@ use crate::dat::*;
 
 use glam::f32::{Quat, Mat4, Vec3};
 
+// TODO merge Phong into TexTransform
+
 pub fn demangle_anim_name(name: &str) -> Option<&str> {
     // PlyFox5K_Share_ACTION_WallDamage_figatree => WallDamage
 
@@ -14,12 +16,14 @@ pub fn demangle_anim_name(name: &str) -> Option<&str> {
 #[derive(Clone, Debug)]
 pub struct AnimationFrame {
     // one for each bone
-    pub animated_transforms: Box<[Mat4]>,
-    pub animated_world_transforms: Box<[Mat4]>,
-    pub animated_bind_transforms: Box<[Mat4]>,
-    
-    pub animated_world_inv_transforms: Box<[Mat4]>,
-    pub animated_bind_inv_transforms: Box<[Mat4]>,
+    pub transforms: Box<[Mat4]>,
+
+    // joint buffers for rendering (calculated in 'recompute_joint_buffers')
+    // one for each bone
+    //pub animated_world_transforms: Box<[Mat4]>,
+    //pub animated_bind_transforms: Box<[Mat4]>,
+    //pub animated_world_inv_transforms: Box<[Mat4]>,
+    //pub animated_bind_inv_transforms: Box<[Mat4]>,
 
     // one for each dobj
     pub phongs: Box<[PhongF32]>,
@@ -29,79 +33,105 @@ pub struct AnimationFrame {
 impl AnimationFrame {
     pub fn new_default_pose(model: &Model) -> Self {
         let bone_len = model.base_transforms.len();
-        let animated_transforms = model.base_transforms.to_vec().into_boxed_slice();
-        let mut animated_world_transforms = Vec::with_capacity(bone_len);
-        let mut animated_bind_transforms = Vec::with_capacity(bone_len);
-        let mut animated_world_inv_transforms = Vec::with_capacity(bone_len);
-        let mut animated_bind_inv_transforms = Vec::with_capacity(bone_len);
-
-        // same length (# of dobj/primitive groups)
-        let phongs: Vec<PhongF32> = model.phongs.iter().map(|&p| p.into()).collect();
-        let tex_transforms = vec![TexTransform::default(); model.primitive_groups.len()];
-
-        for (i, base_transform) in model.base_transforms.iter().enumerate() {
-            let world_transform = match model.bones[i].parent {
-                Some(p_i) => animated_world_transforms[p_i as usize] * *base_transform,
-                None => *base_transform
-            };
-
-            animated_world_transforms.push(world_transform);
-            animated_world_inv_transforms.push(world_transform.inverse());
-            let bind_transform = world_transform * model.inv_world_transforms[i];
-            animated_bind_transforms.push(bind_transform);
-            animated_bind_inv_transforms.push(bind_transform.inverse());
-        }
+        let transforms = model.base_transforms.to_vec().into_boxed_slice();
+        let phongs = model.phongs.iter().map(|&p| p.into()).collect::<Vec<PhongF32>>();
+        let tex_transforms = vec![TexTransform::default(); model.phongs.len()];
 
         AnimationFrame {
-            animated_transforms,
-            animated_world_transforms: animated_world_transforms.into_boxed_slice(),
-            animated_bind_transforms: animated_bind_transforms.into_boxed_slice(),
-            animated_world_inv_transforms: animated_world_inv_transforms.into_boxed_slice(),
-            animated_bind_inv_transforms: animated_bind_inv_transforms.into_boxed_slice(),
+            transforms,
             phongs: phongs.into_boxed_slice(),
             tex_transforms: tex_transforms.into_boxed_slice(),
         }
     }
 
-    pub fn default_pose(&mut self, model: &Model) {
-        self.animated_transforms.copy_from_slice(&model.base_transforms);
-
-        self.recompute_joint_buffers(model);
+    pub fn reset_pose(&mut self, model: &Model) {
+        self.transforms.copy_from_slice(model.base_transforms.as_ref());
+        for i in 0..model.phongs.len() {
+            self.phongs[i] = model.phongs[i].into();
+        }
+        self.tex_transforms.fill(TexTransform::default());
     }
 
-    pub fn custom(
-        &mut self, 
-        model: &Model, 
-        joint_updates: &[(u32, Mat4)],
-        tex_updates: &[(u32, TexTransform)],
-    ) {
-        for (bone, mat) in joint_updates.iter().copied() {
-            let bone = bone as usize;
-            self.animated_transforms[bone] = mat;
+    pub fn apply_animation(&mut self, anim: &Animation, frame: f32, factor: f32) {
+        for transform in anim.bone_transforms.iter() {
+            let bone_index = transform.bone_index;
+            let base_transform = &model.base_transforms[bone_index];
+            let f = transform.compute_transform_at(frame, base_transform, factor);
+            self.transforms[bone_index] = f.transform;
         }
 
-        self.recompute_joint_buffers(model);
-
-        for (dobj, transform) in tex_updates.iter().copied() {
-            let dobj = dobj as usize;
-            self.tex_transforms[dobj] = transform;
+        for transform in anim.material_transforms.iter() {
+            let dobj_index = transform.dobj_index;
+            let base_phong = model.phongs[dobj_index];
+            let animated_material = transform.compute_transform_at(frame, base_phong, factor);
+            self.phongs[dobj_index] = animated_material.phong;
+            self.tex_transforms[dobj_index] = animated_material.tex_transform;
         }
     }
 
-    pub fn recompute_joint_buffers(&mut self, model: &Model) {
-        for (i, animated_transform) in self.animated_transforms.iter().enumerate() {
-            let animated_world_transform = match model.bones[i].parent {
-                Some(p_i) => self.animated_world_transforms[p_i as usize] * *animated_transform,
-                None => *animated_transform
-            };
+    // progress: 0 => from, 1 => self
+    pub fn interpolate_from_transforms(&mut self, from: &[Mat4], progress: f32) {
+        if progress == 1.0 { return; }
 
-            self.animated_world_transforms[i] = animated_world_transform;
-            self.animated_world_inv_transforms[i] = animated_world_transform.inverse();
-            let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
-            self.animated_bind_transforms[i] = animated_bind_transform;
-            self.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
+        // don't interpolate first four bones. If we do, then animations that turn around interpolate a turning animation.
+        // It looks okay, but I'm not sure if this is the correct way to interpolate.
+        for bone in 4..self.transforms.len() {
+            let (base_scale, base_rotation, base_translation) = from[bone].to_scale_rotation_translation();
+            let (target_scale, target_rotation, target_translation) = self.transforms[bone].to_scale_rotation_translation();
+
+            let scale = base_scale.lerp(target_scale, progress);
+            let rotation = base_rotation.slerp(target_rotation, progress);
+            let translation = base_translation.lerp(target_translation, progress);
+            self.transforms[bone] = Mat4::from_scale_rotation_translation(scale, rotation, translation);
         }
     }
+
+    pub fn remove_root_translation(&mut self) {
+        // Remove translation from root jobj. This is given by slippi recording.
+        // If this is not done, translation done by rolls, dashes, many actions, is applied twice -
+        // once by slp position and once by the animation translation.
+        //
+        // Not entirely accurate - I think slp is recording some other character "centre" 
+        // (a different bone?).
+        // not ECB x position - tried that
+        self.transforms[1].w_axis.z = 0.0;
+        self.transforms[1].w_axis.y = 0.0;
+    }
+
+    //pub fn custom(
+    //    &mut self, 
+    //    model: &Model, 
+    //    joint_updates: &[(u32, Mat4)],
+    //    tex_updates: &[(u32, TexTransform)],
+    //) {
+    //    for (bone, mat) in joint_updates.iter().copied() {
+    //        let bone = bone as usize;
+    //        self.animated_transforms[bone] = mat;
+    //    }
+
+    //    self.recompute_joint_buffers(model);
+
+    //    for (dobj, transform) in tex_updates.iter().copied() {
+    //        let dobj = dobj as usize;
+    //        self.tex_transforms[dobj] = transform;
+    //    }
+    //}
+
+    // call before rendering if 'animated_transforms' have changed
+    //pub fn compute_joint_buffers(&mut self, model: &Model) {
+    //    for (i, animated_transform) in self.animated_transforms.iter().enumerate() {
+    //        let animated_world_transform = match model.bones[i].parent {
+    //            Some(p_i) => self.animated_world_transforms[p_i as usize] * *animated_transform,
+    //            None => *animated_transform
+    //        };
+
+    //        self.animated_world_transforms[i] = animated_world_transform;
+    //        self.animated_world_inv_transforms[i] = animated_world_transform.inverse();
+    //        let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
+    //        self.animated_bind_transforms[i] = animated_bind_transform;
+    //        self.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
+    //    }
+    //}
 
 
     //pub fn obj(&self, model: &Model) {
@@ -265,30 +295,6 @@ pub struct Key {
     pub out_tan: f32,
 }
 
-//#[derive(Copy, Clone, Debug)]
-//struct AnimState {
-//    pub t0: f32,
-//    pub t1: f32,
-//    pub p0: f32,
-//    pub p1: f32,
-//    pub d0: f32,
-//    pub d1: f32,
-//    pub _op: MeleeInterpolationType,
-//    pub op_intrp: MeleeInterpolationType, // idk
-//}
-//
-//#[allow(clippy::upper_case_acronyms)]
-//#[derive(Copy, Clone, Debug)]
-//pub enum MeleeInterpolationType {
-//    //NONE,
-//    CON  { value: f32, time: u16 },
-//    LIN  { value: f32, time: u16 },
-//    SPL0 { value: f32, time: u16 },
-//    SPL  { value: f32, tan: f32, time: u16 },
-//    SLP  { tan: f32 },
-//    KEY  { value: f32 },
-//}
-
 #[derive(Copy, Clone, Debug)]
 pub enum InterpolationType {
     Constant,
@@ -301,9 +307,6 @@ pub fn parse_mat_anim(
     prev: &mut Animation,
     mat_anim_joint: HSDStruct<'_>
 ) {
-    //let mut flags = 0;
-    //let mut end_frame = 0.0;
-
     // HSD_MatAnimJoint
     let mut dobj_index = 0;
     for mat_anim_joint in mat_anim_joint.iter_joint_tree(0x00, 0x04) {
@@ -426,6 +429,7 @@ pub fn effective_frame(frame_num: f32, flags: AOBJFlags, end_frame: f32) -> f32 
     let rewound = flags & aobj_flags::REWOUND != 0;
     let loop_anim = flags & aobj_flags::LOOP != 0;
 
+    // hacky guess
     match (loop_anim, rewound) {
         (false, false) => {}
         (true, false) => {
@@ -456,20 +460,6 @@ pub fn effective_frame(frame_num: f32, flags: AOBJFlags, end_frame: f32) -> f32 
 }
 
 impl Animation {
-    pub fn transforms_at(
-        &self, 
-        frame_num: f32, 
-        prev_transforms: &mut [Mat4],
-        model: &Model,
-    ) {
-        for transform in self.bone_transforms.iter() {
-            let bone_index = transform.bone_index;
-            let base_transform = &model.base_transforms[bone_index];
-            let f = transform.compute_frame_at(frame_num, base_transform);
-            prev_transforms[bone_index] = f.transform;
-        }
-    }
-
     // max end frame of all tracks
     pub fn end_frame(&self) -> f32 {
         let mut end_frame: f32 = 0.0;
@@ -484,77 +474,6 @@ impl Animation {
         }
 
         end_frame
-    }
-
-    pub fn frame_at_interpolated(
-        &self, 
-        frame_num: f32, 
-        prev_frame: &mut AnimationFrame,
-        model: &Model,
-        interpolate_from: &[Mat4],
-        progress: f32,
-        remove_root_translation: bool,
-    ) {
-        self.transforms_at(frame_num, prev_frame.animated_transforms.as_mut(), model);
-
-        // interpolation
-        // don't interpolate first four bones. If we do, then animations that turn around interpolate a turning animation.
-        for bone in 4..prev_frame.animated_transforms.len() {
-            let (base_scale, base_rotation, base_translation) = interpolate_from[bone].to_scale_rotation_translation();
-            let (target_scale, target_rotation, target_translation) = prev_frame.animated_transforms[bone].to_scale_rotation_translation();
-
-            let scale = base_scale.lerp(target_scale, progress);
-            let rotation = base_rotation.slerp(target_rotation, progress);
-            let translation = base_translation.lerp(target_translation, progress);
-            prev_frame.animated_transforms[bone] = Mat4::from_scale_rotation_translation(scale, rotation, translation);
-        }
-
-        if remove_root_translation {
-            // Remove translation from root jobj. This is given by slippi recording.
-            // Not entirely accurate - I think slp is recording some other character "centre" 
-            // (a different bone?).
-            prev_frame.animated_transforms[1].w_axis.z = 0.0;
-            prev_frame.animated_transforms[1].w_axis.y = 0.0;
-        }
-
-        prev_frame.recompute_joint_buffers(model);
-
-        // don't apply interpolation to material_transforms
-        for transform in self.material_transforms.iter() {
-            let dobj_index = transform.dobj_index;
-            let base_phong = model.phongs[dobj_index];
-            let animated_material = transform.compute_frame_at(frame_num, base_phong);
-            prev_frame.phongs[dobj_index] = animated_material.phong;
-            prev_frame.tex_transforms[dobj_index] = animated_material.tex_transform;
-        }
-    }
-
-    pub fn frame_at(
-        &self, 
-        frame_num: f32, 
-        prev_frame: &mut AnimationFrame,
-        model: &Model,
-        remove_root_translation: bool,
-    ) {
-        self.transforms_at(frame_num, prev_frame.animated_transforms.as_mut(), model);
-
-        if remove_root_translation {
-            // Remove translation from root jobj. This is given by slippi recording.
-            // Not entirely accurate - I think slp is recording some other character "centre" 
-            // (a different bone?).
-            prev_frame.animated_transforms[1].w_axis.z = 0.0;
-            prev_frame.animated_transforms[1].w_axis.y = 0.0;
-        }
-
-        prev_frame.recompute_joint_buffers(model);
-
-        for transform in self.material_transforms.iter() {
-            let dobj_index = transform.dobj_index;
-            let base_phong = model.phongs[dobj_index];
-            let animated_material = transform.compute_frame_at(frame_num, base_phong);
-            prev_frame.phongs[dobj_index] = animated_material.phong;
-            prev_frame.tex_transforms[dobj_index] = animated_material.tex_transform;
-        }
     }
 }
 
@@ -592,10 +511,11 @@ impl Default for TexTransform {
 unsafe impl bytemuck::NoUninit for TexTransform {}
 
 impl AnimTransformBone {
-    pub fn compute_frame_at(
+    pub fn compute_transform_at(
         &self, 
         frame: f32, 
         base_transform: &Mat4,
+        factor: f32,
     ) -> AnimTransformBoneFrame {
         let effective_frame = effective_frame(frame, self.flags, self.end_frame);
 
@@ -611,15 +531,15 @@ impl AnimTransformBone {
 
             match track.track_type {
                 // joint
-                RotateX => euler_rotation.x = val,
-                RotateY => euler_rotation.y = val,
-                RotateZ => euler_rotation.z = val,
-                TranslateX => translation.x = val,
-                TranslateY => translation.y = val,
-                TranslateZ => translation.z = val,
-                ScaleX => scale.x = val,
-                ScaleY => scale.y = val,
-                ScaleZ => scale.z = val,
+                RotateX => euler_rotation.x = val * factor,
+                RotateY => euler_rotation.y = val * factor,
+                RotateZ => euler_rotation.z = val * factor,
+                TranslateX => translation.x = val * factor,
+                TranslateY => translation.y = val * factor,
+                TranslateZ => translation.z = val * factor,
+                ScaleX => scale.x = val * factor,
+                ScaleY => scale.y = val * factor,
+                ScaleZ => scale.z = val * factor,
             }
         }
 
@@ -636,10 +556,11 @@ impl AnimTransformBone {
 }
 
 impl AnimTransformMaterial {
-    pub fn compute_frame_at(
+    pub fn compute_transform_at(
         &self, 
         frame: f32, 
         base_phong: Phong,
+        factor: f32,
     ) -> AnimTransformMaterialFrame {
         let mut phong: PhongF32 = base_phong.into();
 
@@ -651,19 +572,19 @@ impl AnimTransformMaterial {
             let val: f32 = track.get_value(effective_frame_material + track.start_frame);
 
             match track.track_type {
-                AmbientR => phong.ambient[0] = val,
-                AmbientG => phong.ambient[1] = val,
-                AmbientB => phong.ambient[2] = val,
-                DiffuseR => phong.diffuse[0] = val,
-                DiffuseG => phong.diffuse[1] = val,
-                DiffuseB => phong.diffuse[2] = val,
-                SpecularR => phong.specular[0] = val,
-                SpecularG => phong.specular[1] = val,
-                SpecularB => phong.specular[2] = val,
+                AmbientR  => phong.ambient[0]  = val * factor,
+                AmbientG  => phong.ambient[1]  = val * factor,
+                AmbientB  => phong.ambient[2]  = val * factor,
+                DiffuseR  => phong.diffuse[0]  = val * factor,
+                DiffuseG  => phong.diffuse[1]  = val * factor,
+                DiffuseB  => phong.diffuse[2]  = val * factor,
+                SpecularR => phong.specular[0] = val * factor,
+                SpecularG => phong.specular[1] = val * factor,
+                SpecularB => phong.specular[2] = val * factor,
                 Alpha => {
-                    phong.ambient[3] = val;
-                    phong.diffuse[3] = val;
-                    phong.specular[3] = val;
+                    phong.ambient[3]  = val * factor;
+                    phong.diffuse[3]  = val * factor;
+                    phong.specular[3] = val * factor;
                 }
             }
         }
@@ -678,18 +599,18 @@ impl AnimTransformMaterial {
             let val: f32 = track.get_value(effective_frame_texture + track.start_frame);
 
             match track.track_type {
-                TraU => tex_t.uv_translation[0] = val,
-                TraV => tex_t.uv_translation[1] = val,
-                ScaU => tex_t.uv_scale[0] = val,
-                ScaV => tex_t.uv_scale[1] = val,
-                KonstR => tex_t.konst_colour[0] = val,
-                KonstG => tex_t.konst_colour[1] = val,
-                KonstB => tex_t.konst_colour[2] = val,
-                KonstA => tex_t.konst_colour[3] = val,
-                Tev0R => tex_t.tex_colour[0] = val,
-                Tev0G => tex_t.tex_colour[1] = val,
-                Tev0B => tex_t.tex_colour[2] = val,
-                Tev0A => tex_t.tex_colour[3] = val,
+                TraU   => tex_t.uv_translation[0] = val * factor,
+                TraV   => tex_t.uv_translation[1] = val * factor,
+                ScaU   => tex_t.uv_scale[0]       = val * factor,
+                ScaV   => tex_t.uv_scale[1]       = val * factor,
+                KonstR => tex_t.konst_colour[0]   = val * factor,
+                KonstG => tex_t.konst_colour[1]   = val * factor,
+                KonstB => tex_t.konst_colour[2]   = val * factor,
+                KonstA => tex_t.konst_colour[3]   = val * factor,
+                Tev0R  => tex_t.tex_colour[0]     = val * factor,
+                Tev0G  => tex_t.tex_colour[1]     = val * factor,
+                Tev0B  => tex_t.tex_colour[2]     = val * factor,
+                Tev0A  => tex_t.tex_colour[3]     = val * factor,
             }
         }
 
@@ -702,10 +623,8 @@ fn extract_figatree_transforms(figatree: FigaTree) -> Vec<AnimTransformBone> {
 
     let end_frame = figatree.frame_count();
 
-    // I pray that bone_index is correct here...
-    // It looks like the skeleton bone array is depth-first (SBSkeleton.cs:48)
-    // and the flat list of nodes here corresponds with that access method (IO_HSDAnim.cs:76).
-    // Not obvious.
+    // The skeleton bone array is depth-first (SBSkeleton.cs:48)
+    // and the flat list of bones corresponds with that access method (IO_HSDAnim.cs:76).
     for (bone_index, node) in figatree.get_nodes().iter().enumerate() {
         let mut tracks = Vec::new();
         for track in node.tracks.iter() {
@@ -726,7 +645,6 @@ fn extract_figatree_transforms(figatree: FigaTree) -> Vec<AnimTransformBone> {
     transforms
 }
 
-// no clue what this does.
 // BinaryReaderExt.cs:249
 fn read_packed(stream: &mut Stream<'_>) -> u16 {
     let a = stream.read_byte() as u16;
