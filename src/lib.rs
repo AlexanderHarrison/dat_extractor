@@ -1,5 +1,7 @@
 // please do not use this crate
 
+mod repr;
+
 pub mod dat;
 pub mod isoparser;
 
