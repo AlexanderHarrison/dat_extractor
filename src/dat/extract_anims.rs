@@ -18,13 +18,6 @@ pub struct AnimationFrame {
     // one for each bone
     pub transforms: Box<[Mat4]>,
 
-    // joint buffers for rendering (calculated in 'recompute_joint_buffers')
-    // one for each bone
-    //pub animated_world_transforms: Box<[Mat4]>,
-    //pub animated_bind_transforms: Box<[Mat4]>,
-    //pub animated_world_inv_transforms: Box<[Mat4]>,
-    //pub animated_bind_inv_transforms: Box<[Mat4]>,
-
     // one for each dobj
     pub phongs: Box<[PhongF32]>,
     pub tex_transforms: Box<[TexTransform]>,
@@ -32,7 +25,6 @@ pub struct AnimationFrame {
 
 impl AnimationFrame {
     pub fn new_default_pose(model: &Model) -> Self {
-        let bone_len = model.base_transforms.len();
         let transforms = model.base_transforms.to_vec().into_boxed_slice();
         let phongs = model.phongs.iter().map(|&p| p.into()).collect::<Vec<PhongF32>>();
         let tex_transforms = vec![TexTransform::default(); model.phongs.len()];
@@ -44,7 +36,7 @@ impl AnimationFrame {
         }
     }
 
-    pub fn reset_pose(&mut self, model: &Model) {
+    pub fn default_pose(&mut self, model: &Model) {
         self.transforms.copy_from_slice(model.base_transforms.as_ref());
         for i in 0..model.phongs.len() {
             self.phongs[i] = model.phongs[i].into();
@@ -52,32 +44,32 @@ impl AnimationFrame {
         self.tex_transforms.fill(TexTransform::default());
     }
 
-    pub fn apply_animation(&mut self, anim: &Animation, frame: f32, factor: f32) {
+    pub fn apply_animation(&mut self, model: &Model, anim: &Animation, frame: f32) {
         for transform in anim.bone_transforms.iter() {
             let bone_index = transform.bone_index;
             let base_transform = &model.base_transforms[bone_index];
-            let f = transform.compute_transform_at(frame, base_transform, factor);
+            let f = transform.compute_transform_at(frame, base_transform);
             self.transforms[bone_index] = f.transform;
         }
 
         for transform in anim.material_transforms.iter() {
             let dobj_index = transform.dobj_index;
             let base_phong = model.phongs[dobj_index];
-            let animated_material = transform.compute_transform_at(frame, base_phong, factor);
+            let animated_material = transform.compute_transform_at(frame, base_phong);
             self.phongs[dobj_index] = animated_material.phong;
             self.tex_transforms[dobj_index] = animated_material.tex_transform;
         }
     }
 
-    // progress: 0 => from, 1 => self
-    pub fn interpolate_from_transforms(&mut self, from: &[Mat4], progress: f32) {
-        if progress == 1.0 { return; }
+    // progress: 0 => self, 1 => other
+    pub fn interpolate(&mut self, other: &[Mat4], progress: f32) {
+        if progress == 0.0 { return; }
 
         // don't interpolate first four bones. If we do, then animations that turn around interpolate a turning animation.
         // It looks okay, but I'm not sure if this is the correct way to interpolate.
         for bone in 4..self.transforms.len() {
-            let (base_scale, base_rotation, base_translation) = from[bone].to_scale_rotation_translation();
-            let (target_scale, target_rotation, target_translation) = self.transforms[bone].to_scale_rotation_translation();
+            let (base_scale, base_rotation, base_translation) = self.transforms[bone].to_scale_rotation_translation();
+            let (target_scale, target_rotation, target_translation) = other[bone].to_scale_rotation_translation();
 
             let scale = base_scale.lerp(target_scale, progress);
             let rotation = base_rotation.slerp(target_rotation, progress);
@@ -97,42 +89,6 @@ impl AnimationFrame {
         self.transforms[1].w_axis.z = 0.0;
         self.transforms[1].w_axis.y = 0.0;
     }
-
-    //pub fn custom(
-    //    &mut self, 
-    //    model: &Model, 
-    //    joint_updates: &[(u32, Mat4)],
-    //    tex_updates: &[(u32, TexTransform)],
-    //) {
-    //    for (bone, mat) in joint_updates.iter().copied() {
-    //        let bone = bone as usize;
-    //        self.animated_transforms[bone] = mat;
-    //    }
-
-    //    self.recompute_joint_buffers(model);
-
-    //    for (dobj, transform) in tex_updates.iter().copied() {
-    //        let dobj = dobj as usize;
-    //        self.tex_transforms[dobj] = transform;
-    //    }
-    //}
-
-    // call before rendering if 'animated_transforms' have changed
-    //pub fn compute_joint_buffers(&mut self, model: &Model) {
-    //    for (i, animated_transform) in self.animated_transforms.iter().enumerate() {
-    //        let animated_world_transform = match model.bones[i].parent {
-    //            Some(p_i) => self.animated_world_transforms[p_i as usize] * *animated_transform,
-    //            None => *animated_transform
-    //        };
-
-    //        self.animated_world_transforms[i] = animated_world_transform;
-    //        self.animated_world_inv_transforms[i] = animated_world_transform.inverse();
-    //        let animated_bind_transform = animated_world_transform * model.inv_world_transforms[i];
-    //        self.animated_bind_transforms[i] = animated_bind_transform;
-    //        self.animated_bind_inv_transforms[i] = animated_bind_transform.inverse();
-    //    }
-    //}
-
 
     //pub fn obj(&self, model: &Model) {
     //    let mut i = 1;
@@ -515,7 +471,6 @@ impl AnimTransformBone {
         &self, 
         frame: f32, 
         base_transform: &Mat4,
-        factor: f32,
     ) -> AnimTransformBoneFrame {
         let effective_frame = effective_frame(frame, self.flags, self.end_frame);
 
@@ -531,15 +486,15 @@ impl AnimTransformBone {
 
             match track.track_type {
                 // joint
-                RotateX => euler_rotation.x = val * factor,
-                RotateY => euler_rotation.y = val * factor,
-                RotateZ => euler_rotation.z = val * factor,
-                TranslateX => translation.x = val * factor,
-                TranslateY => translation.y = val * factor,
-                TranslateZ => translation.z = val * factor,
-                ScaleX => scale.x = val * factor,
-                ScaleY => scale.y = val * factor,
-                ScaleZ => scale.z = val * factor,
+                RotateX => euler_rotation.x = val,
+                RotateY => euler_rotation.y = val,
+                RotateZ => euler_rotation.z = val,
+                TranslateX => translation.x = val,
+                TranslateY => translation.y = val,
+                TranslateZ => translation.z = val,
+                ScaleX => scale.x = val,
+                ScaleY => scale.y = val,
+                ScaleZ => scale.z = val,
             }
         }
 
@@ -560,7 +515,6 @@ impl AnimTransformMaterial {
         &self, 
         frame: f32, 
         base_phong: Phong,
-        factor: f32,
     ) -> AnimTransformMaterialFrame {
         let mut phong: PhongF32 = base_phong.into();
 
@@ -572,19 +526,19 @@ impl AnimTransformMaterial {
             let val: f32 = track.get_value(effective_frame_material + track.start_frame);
 
             match track.track_type {
-                AmbientR  => phong.ambient[0]  = val * factor,
-                AmbientG  => phong.ambient[1]  = val * factor,
-                AmbientB  => phong.ambient[2]  = val * factor,
-                DiffuseR  => phong.diffuse[0]  = val * factor,
-                DiffuseG  => phong.diffuse[1]  = val * factor,
-                DiffuseB  => phong.diffuse[2]  = val * factor,
-                SpecularR => phong.specular[0] = val * factor,
-                SpecularG => phong.specular[1] = val * factor,
-                SpecularB => phong.specular[2] = val * factor,
+                AmbientR  => phong.ambient[0]  = val,
+                AmbientG  => phong.ambient[1]  = val,
+                AmbientB  => phong.ambient[2]  = val,
+                DiffuseR  => phong.diffuse[0]  = val,
+                DiffuseG  => phong.diffuse[1]  = val,
+                DiffuseB  => phong.diffuse[2]  = val,
+                SpecularR => phong.specular[0] = val,
+                SpecularG => phong.specular[1] = val,
+                SpecularB => phong.specular[2] = val,
                 Alpha => {
-                    phong.ambient[3]  = val * factor;
-                    phong.diffuse[3]  = val * factor;
-                    phong.specular[3] = val * factor;
+                    phong.ambient[3]  = val;
+                    phong.diffuse[3]  = val;
+                    phong.specular[3] = val;
                 }
             }
         }
@@ -599,18 +553,18 @@ impl AnimTransformMaterial {
             let val: f32 = track.get_value(effective_frame_texture + track.start_frame);
 
             match track.track_type {
-                TraU   => tex_t.uv_translation[0] = val * factor,
-                TraV   => tex_t.uv_translation[1] = val * factor,
-                ScaU   => tex_t.uv_scale[0]       = val * factor,
-                ScaV   => tex_t.uv_scale[1]       = val * factor,
-                KonstR => tex_t.konst_colour[0]   = val * factor,
-                KonstG => tex_t.konst_colour[1]   = val * factor,
-                KonstB => tex_t.konst_colour[2]   = val * factor,
-                KonstA => tex_t.konst_colour[3]   = val * factor,
-                Tev0R  => tex_t.tex_colour[0]     = val * factor,
-                Tev0G  => tex_t.tex_colour[1]     = val * factor,
-                Tev0B  => tex_t.tex_colour[2]     = val * factor,
-                Tev0A  => tex_t.tex_colour[3]     = val * factor,
+                TraU   => tex_t.uv_translation[0] = val,
+                TraV   => tex_t.uv_translation[1] = val,
+                ScaU   => tex_t.uv_scale[0]       = val,
+                ScaV   => tex_t.uv_scale[1]       = val,
+                KonstR => tex_t.konst_colour[0]   = val,
+                KonstG => tex_t.konst_colour[1]   = val,
+                KonstB => tex_t.konst_colour[2]   = val,
+                KonstA => tex_t.konst_colour[3]   = val,
+                Tev0R  => tex_t.tex_colour[0]     = val,
+                Tev0G  => tex_t.tex_colour[1]     = val,
+                Tev0B  => tex_t.tex_colour[2]     = val,
+                Tev0A  => tex_t.tex_colour[3]     = val,
             }
         }
 
