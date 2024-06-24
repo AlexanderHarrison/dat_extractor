@@ -89,6 +89,47 @@ macro_rules! hsd_struct {
     }
 }
 
+// dat file roots -------------------------------------
+
+pub struct DatFileHead<'a> {
+    root_offsets: &'a [u32],
+    root_string_offsets: &'a [u32],
+
+    reference_offsets: &'a [u32],
+    reference_string_offsets: &'a [u32],
+}
+
+pub fn parse_dat_file<'a>(dat: DatFile<'_>, bump: &'a Bump) -> Option<DatFileHead<'a>> {
+    let fsize        = u32::from_be_bytes(dat[00..04].try_into().unwrap());
+    let reloc_offset = u32::from_be_bytes(dat[04..08].try_into().unwrap()) + 0x20;
+    let reloc_count  = u32::from_be_bytes(dat[08..12].try_into().unwrap());
+    let root_count   = u32::from_be_bytes(dat[12..16].try_into().unwrap());
+    let ref_count    = u32::from_be_bytes(dat[16..20].try_into().unwrap());
+    //let version_chars = r.read_chars(4);
+
+    let root_start = reloc_offset + reloc_count * 4;
+    let string_start = root_start + (ref_count + root_count) * 8;
+
+    let mut root_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
+    let mut root_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
+    let mut reference_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
+    let mut reference_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
+
+    // parse roots -----------------------------
+
+    for i in 0..root_count {
+        let root_offset_start = root_start + i*8;
+        let root_offset = u32::from_be_bytes(dat[root_offset_start..root_offset_start+4].try_into().unwrap()) + 0x20;
+        let root_string_offset_start = root_start + i*8 + 4;
+        let root_string_offset = u32::from_be_bytes(dat[root_string_offset_start..root_string_offset_start+4].try_into().unwrap()) + 0x20;
+
+        root_offsets.push(root_offset);
+        let j = r.read_i32() as usize;
+        let rstring = r.read_string(string_start + j);
+        root_strings.push(rstring);
+    }
+}
+
 // mesh and textures -----------------------------------------
 
 #[derive(Copy, Clone, Debug)]
@@ -135,7 +176,7 @@ hsd_struct!(POBJ, 0x18,
 );
 
 impl POBJ {
-    pub fn display_list_buffer<'a>(self, dat: DatFile<'a>) -> Option<&[u8]> {
+    pub fn display_list_buffer_bytes<'a>(self, dat: DatFile<'a>) -> Option<&[u8]> {
         let size = self.display_list_size_div32(dat) as usize * 32;
         let offset = self.display_list_buffer_offset(dat) as usize;
         if size != 0 && offset != 0 {
