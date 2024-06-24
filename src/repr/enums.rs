@@ -36,24 +36,24 @@ pub mod jobj_flags {
 
 pub type ROBJFlags = u32;
 pub mod robj_flags {
-    const EXP     : u32 = 0x00000000;
-    const JOBJ    : u32 = 0x10000000;
-    const LIMIT   : u32 = 0x20000000;
-    const BYTECODE: u32 = 0x30000000;
-    const IKHINT  : u32 = 0x40000000;
+    pub const EXP     : u32 = 0x00000000;
+    pub const JOBJ    : u32 = 0x10000000;
+    pub const LIMIT   : u32 = 0x20000000;
+    pub const BYTECODE: u32 = 0x30000000;
+    pub const IKHINT  : u32 = 0x40000000;
 
-    const MIN_ROTX: u32 = 01;
-    const MAX_ROTX: u32 = 02;
-    const MIN_ROTY: u32 = 03;
-    const MAX_ROTY: u32 = 04;
-    const MIN_ROTZ: u32 = 05;
-    const MAX_ROTZ: u32 = 06;
-    const MIN_TRAX: u32 = 07;
-    const MAX_TRAX: u32 = 08;
-    const MIN_TRAY: u32 = 09;
-    const MAX_TRAY: u32 = 10;
-    const MIN_TRAZ: u32 = 11;
-    const MAX_TRAZ: u32 = 12;
+    pub const MIN_ROTX: u32 = 01;
+    pub const MAX_ROTX: u32 = 02;
+    pub const MIN_ROTY: u32 = 03;
+    pub const MAX_ROTY: u32 = 04;
+    pub const MIN_ROTZ: u32 = 05;
+    pub const MAX_ROTZ: u32 = 06;
+    pub const MIN_TRAX: u32 = 07;
+    pub const MAX_TRAX: u32 = 08;
+    pub const MIN_TRAY: u32 = 09;
+    pub const MAX_TRAY: u32 = 10;
+    pub const MIN_TRAZ: u32 = 11;
+    pub const MAX_TRAZ: u32 = 12;
 }
 
 pub type PixelProcessFlags = u8;

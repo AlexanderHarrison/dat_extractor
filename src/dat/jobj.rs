@@ -51,7 +51,6 @@ impl<'a> DOBJ<'a> {
     pub fn get_sibling(&self) -> Option<DOBJ<'a>> {
         self.hsd_struct.try_get_reference(0x04).map(DOBJ::new)
     }
-
 }
 
 impl<'a> Attribute<'a> {

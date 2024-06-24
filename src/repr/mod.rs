@@ -1,4 +1,7 @@
-#![allow(unused, non_camel_case_types)]
+#![allow(non_camel_case_types)]
+
+use bumpalo::Bump;
+use glam::f32::*;
 
 mod enums;
 pub use enums::*;
@@ -92,15 +95,18 @@ macro_rules! hsd_struct {
 // dat file roots -------------------------------------
 
 pub struct DatFileHead<'a> {
-    root_offsets: &'a [u32],
-    root_string_offsets: &'a [u32],
-
-    reference_offsets: &'a [u32],
-    reference_string_offsets: &'a [u32],
+    pub root_offsets: &'a [u32],
+    pub root_string_offsets: &'a [u32],
+    pub reference_offsets: &'a [u32],
+    pub reference_string_offsets: &'a [u32],
 }
 
 pub fn parse_dat_file<'a>(dat: DatFile<'_>, bump: &'a Bump) -> Option<DatFileHead<'a>> {
+    if dat.len() < 4 { return None; }
+
     let fsize        = u32::from_be_bytes(dat[00..04].try_into().unwrap());
+    if dat.len() != fsize as usize { return None; }
+
     let reloc_offset = u32::from_be_bytes(dat[04..08].try_into().unwrap()) + 0x20;
     let reloc_count  = u32::from_be_bytes(dat[08..12].try_into().unwrap());
     let root_count   = u32::from_be_bytes(dat[12..16].try_into().unwrap());
@@ -110,24 +116,85 @@ pub fn parse_dat_file<'a>(dat: DatFile<'_>, bump: &'a Bump) -> Option<DatFileHea
     let root_start = reloc_offset + reloc_count * 4;
     let string_start = root_start + (ref_count + root_count) * 8;
 
-    let mut root_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
-    let mut root_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
-    let mut reference_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
-    let mut reference_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0);
+    let root_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0u32);
+    let root_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0u32);
+    let reference_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0u32);
+    let reference_string_offsets = bump.alloc_slice_fill_copy(root_count as usize, 0u32);
 
     // parse roots -----------------------------
 
-    for i in 0..root_count {
-        let root_offset_start = root_start + i*8;
+    for i in 0..(root_count as usize) {
+        let root_offset_start = root_start as usize + i*8;
         let root_offset = u32::from_be_bytes(dat[root_offset_start..root_offset_start+4].try_into().unwrap()) + 0x20;
-        let root_string_offset_start = root_start + i*8 + 4;
-        let root_string_offset = u32::from_be_bytes(dat[root_string_offset_start..root_string_offset_start+4].try_into().unwrap()) + 0x20;
+        let root_string_offset_start = root_start as usize + i*8 + 4;
+        let root_string_offset = u32::from_be_bytes(dat[root_string_offset_start..root_string_offset_start+4].try_into().unwrap());
 
-        root_offsets.push(root_offset);
-        let j = r.read_i32() as usize;
-        let rstring = r.read_string(string_start + j);
-        root_strings.push(rstring);
+        root_offsets[i] = root_offset;
+        root_string_offsets[i] = string_start + root_string_offset;
     }
+
+    // parse references -----------------------------
+
+    let ref_start = (root_start + root_count*8) as usize;
+    for i in 0..(ref_count as usize) {
+        let ref_offset_start = ref_start + i*8;
+        let ref_offset = u32::from_be_bytes(dat[ref_offset_start..ref_offset_start+4].try_into().unwrap()) + 0x20;
+        let ref_string_offset_start = ref_start + i*8 + 4;
+        let ref_string_offset = u32::from_be_bytes(dat[ref_string_offset_start..ref_string_offset_start+4].try_into().unwrap());
+
+        reference_offsets[i] = ref_offset;
+        reference_string_offsets[i] = string_start + ref_string_offset;
+    }
+
+    Some(DatFileHead {
+        root_offsets,
+        root_string_offsets,
+        reference_offsets,
+        reference_string_offsets,
+    })
+}
+
+// extraction functions
+
+#[derive(Copy, Clone, Debug)]
+pub struct Transform {
+    pub rotation: Vec3,
+    pub scale: Vec3,
+    pub translation: Vec3,
+}
+
+impl Transform {
+    pub fn quat_rotation(self) -> Quat {
+        Quat::from_euler(glam::EulerRot::ZYX, self.rotation.z, self.rotation.y, self.rotation.x)
+    }
+
+    pub fn to_mat4(self) -> Mat4 {
+        let rotation = self.quat_rotation();
+        Mat4::from_rotation_scale_translation(rotation, scale, translation);
+    }
+}
+
+struct Model<'a> {
+    // one for each bone
+    pub bones: &'a [Bone],
+    pub base_transforms: &'a [Mat4],
+    pub inv_world_transforms: &'a [Mat4],
+
+    // one for each dobj
+    pub phongs: &'a [Phong],
+    pub primitive_groups: &'a [PrimitiveGroup],
+    pub textures: &'a [Texture],
+
+    pub indices: &'a [u16],
+    pub vertices: 'a [Vertex],
+}
+
+pub fn extract_model_from_JOBJ(dat: DatFile<'a>, jobj: JOBJ) -> Option<Model> {
+}
+
+pub fn extract_character_model(model_dat: DatFile<'a>, model_head: DatFileHead<'a>) -> Option<Model> {
+    let jobj = JOBJ { offset: model_head.root_offsets[0] };
+    extract_model_from_JOBJ(model_dat, jobj)
 }
 
 // mesh and textures -----------------------------------------
@@ -153,6 +220,16 @@ hsd_struct!(JOBJ, 0x40,
 
     0x3C => robj: ref(ROBJ),
 );
+
+impl JOBJ {
+    pub fn transform(self, dat: DatFile) -> Transform {
+        Transform {
+            rotation: Vec3::from(self.rotation(dat)),
+            scale: Vec3::from(self.scale(dat)),
+            translation: Vec3::from(self.translation(dat)),
+        }
+    }
+}
 
 hsd_struct!(DOBJ, 0x10,
     0x00 => class_name  : string(Option<StringRef>),
