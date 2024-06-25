@@ -519,6 +519,10 @@ impl<'a> JOBJ<'a> {
         }
     }
 
+    pub fn get_robj<'b>(&'b self) -> Option<HSDStruct<'a>> {
+        self.hsd_struct.try_get_reference(0x3C)
+    }
+
     /// Includes self
     pub fn siblings<'b>(&'b self) -> impl Iterator<Item=JOBJ<'a>> {
         std::iter::successors(Some(self.clone()), |ch| ch.get_sibling())
