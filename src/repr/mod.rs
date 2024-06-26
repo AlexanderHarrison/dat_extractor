@@ -176,17 +176,17 @@ impl Transform {
 
 struct Model<'a> {
     // one for each bone
-    pub bones: &'a [Bone],
-    pub base_transforms: &'a [Mat4],
-    pub inv_world_transforms: &'a [Mat4],
+    pub bones: &'a mut [Bone],
+    pub base_transforms: &'a mut [Mat4],
+    pub inv_world_transforms: &'a mut [Mat4],
 
     // one for each dobj
-    pub phongs: &'a [Phong],
-    pub primitive_groups: &'a [PrimitiveGroup],
-    pub textures: &'a [Texture],
+    pub phongs: &'a mut [Phong],
+    pub primitive_groups: &'a mut [PrimitiveGroup],
+    pub textures: &'a mut [Texture],
 
-    pub indices: &'a [u16],
-    pub vertices: 'a [Vertex],
+    pub indices: &'a mut [u16],
+    pub vertices: 'a mut [Vertex],
 }
 
 pub fn extract_model_from_JOBJ(dat: DatFile<'a>, jobj: JOBJ) -> Option<Model> {
