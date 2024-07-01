@@ -170,32 +170,32 @@ impl Transform {
 
     pub fn to_mat4(self) -> Mat4 {
         let rotation = self.quat_rotation();
-        Mat4::from_rotation_scale_translation(rotation, scale, translation);
+        Mat4::from_scale_rotation_translation(self.scale, rotation, self.translation)
     }
 }
 
-struct Model<'a> {
-    // one for each bone
-    pub bones: &'a mut [Bone],
-    pub base_transforms: &'a mut [Mat4],
-    pub inv_world_transforms: &'a mut [Mat4],
-
-    // one for each dobj
-    pub phongs: &'a mut [Phong],
-    pub primitive_groups: &'a mut [PrimitiveGroup],
-    pub textures: &'a mut [Texture],
-
-    pub indices: &'a mut [u16],
-    pub vertices: 'a mut [Vertex],
-}
-
-pub fn extract_model_from_JOBJ(dat: DatFile<'a>, jobj: JOBJ) -> Option<Model> {
-}
-
-pub fn extract_character_model(model_dat: DatFile<'a>, model_head: DatFileHead<'a>) -> Option<Model> {
-    let jobj = JOBJ { offset: model_head.root_offsets[0] };
-    extract_model_from_JOBJ(model_dat, jobj)
-}
+//struct Model<'a> {
+//    // one for each bone
+//    pub bones: &'a mut [Bone],
+//    pub base_transforms: &'a mut [Mat4],
+//    pub inv_world_transforms: &'a mut [Mat4],
+//
+//    // one for each dobj
+//    pub phongs: &'a mut [Phong],
+//    pub primitive_groups: &'a mut [PrimitiveGroup],
+//    pub textures: &'a mut [Texture],
+//
+//    pub indices: &'a mut [u16],
+//    pub vertices: 'a mut [Vertex],
+//}
+//
+//pub fn extract_model_from_JOBJ(dat: DatFile<'a>, jobj: JOBJ) -> Option<Model> {
+//}
+//
+//pub fn extract_character_model(model_dat: DatFile<'a>, model_head: DatFileHead<'a>) -> Option<Model> {
+//    let jobj = JOBJ { offset: model_head.root_offsets[0] };
+//    extract_model_from_JOBJ(model_dat, jobj)
+//}
 
 // mesh and textures -----------------------------------------
 
@@ -364,3 +364,15 @@ hsd_struct!(TOBJ_TEV, 0x20,
     0x18 => tev_1: array(u8, 4),
     0x1C => active: flags(TEVActive),
 );
+
+// figatree animation ----------------------------------
+
+hsd_struct!(FigaTree, 0x14,
+    0x00 => anim_type: num(u32), // always 1 ??
+    0x04 => idx: num(u32), // always 0 ??
+    0x08 => frame_count: num(f32),
+    0x0C => track_count_buffer_offset: num(u32),
+    0x10 => track_buffer_offset: num(u32),
+);
+
+//hsd_struct!(Track, 

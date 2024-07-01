@@ -370,6 +370,7 @@ pub fn extract_anim_from_action(
 
     let anim_root = &hsd_file.roots[0];
     let figatree = FigaTree::new(anim_root.hsd_struct.clone());
+
     let bone_transforms = extract_figatree_transforms(figatree);
 
     Some(Animation {
