@@ -8,7 +8,7 @@ use std::rc::Rc;
 use slp_parser::*;
 
 fn main() {
-    let character = Character::YoungLink;
+    let character = Character::Link;
 
     let changes: &[(usize, f32)] = &[(310, 0.625), (311, 0.625)];
 
@@ -65,6 +65,7 @@ fn main() {
 
     let iso = std::fs::OpenOptions::new()
         .read(true).write(true)
+        //.open("/run/media/alex/ALEX_H/games/TM balance/game.iso")
         .open("/Windows/Users/Alex/My Documents/Melee/balance/balance.iso")
         //.open("/home/alex/melee/tm_balance.iso")
         .unwrap();
