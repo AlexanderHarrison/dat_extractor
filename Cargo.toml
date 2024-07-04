@@ -15,6 +15,7 @@ glam = "0.27"
 slp_parser = { path = "../slippi_situation_parser" }
 ahash = "0.8"
 bytemuck = "1.15"
+bumpalo = "3.16"
 
 [dev-dependencies]
 lodepng = "3.8"

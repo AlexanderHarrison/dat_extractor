@@ -1,3 +1,7 @@
+// please do not use this crate
+
+pub mod repr;
+
 pub mod dat;
 pub mod isoparser;
 
@@ -29,7 +33,7 @@ pub fn get_fighter_data(
     let anim_dat = files.read_file(anim_filename)?;
     let model_dat = files.read_file(model_filename)?;
 
-    dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat)
+    dat::parse_fighter_data(&base_dat, &anim_dat, &model_dat, character)
         .ok_or(ISOParseError::InvalidISO)
 }
 
@@ -467,6 +471,39 @@ pub const fn character_model_filename(character: CharacterColour) -> &'static st
         Ganondorf     (GanondorfColour     ::Blue     ) => "PlGnBu.dat",
         Ganondorf     (GanondorfColour     ::Green    ) => "PlGnGr.dat",
         Ganondorf     (GanondorfColour     ::Lavender ) => "PlGnLa.dat",
+    }
+}
+
+pub const fn neutral_character_stock_icon_index(character: Character) -> u8 {
+    use Character::*;
+    match character {
+        CaptainFalcon  => 00,
+        DonkeyKong     => 01,
+        Fox            => 02,
+        MrGameAndWatch => 03,
+        Kirby          => 04,
+        Bowser         => 05,
+        Link           => 06,
+        Luigi          => 07,
+        Mario          => 08,
+        Marth          => 09,
+        Mewtwo         => 10,
+        Ness           => 11,
+        Peach          => 12,
+        Pikachu        => 13,
+        Popo           => 14,
+        Nana           => 14,
+        Jigglypuff     => 15,
+        Samus          => 16,
+        Yoshi          => 17,
+        Sheik          => 25,
+        Zelda          => 18,
+        Falco          => 19,
+        YoungLink      => 20,
+        DrMario        => 21,
+        Roy            => 22,
+        Pichu          => 23,
+        Ganondorf      => 24,
     }
 }
 

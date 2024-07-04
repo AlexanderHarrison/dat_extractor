@@ -262,6 +262,35 @@ pub fn decode_data(format: InternalTextureFormat, width: usize, height: usize, d
     };
 }
 
+pub type RenderModeFlags = u32;
+pub mod render_mode_flags {
+    use super::RenderModeFlags;
+    pub const CONSTANT      : RenderModeFlags = 1 << 0;
+    pub const VERTEX        : RenderModeFlags = 1 << 1;
+    pub const DIFFUSE       : RenderModeFlags = 1 << 2;
+    pub const SPECULAR      : RenderModeFlags = 1 << 3;
+    pub const TEX0          : RenderModeFlags = 1 << 4;
+    pub const TEX1          : RenderModeFlags = 1 << 5;
+    pub const TEX2          : RenderModeFlags = 1 << 6;
+    pub const TEX3          : RenderModeFlags = 1 << 7;
+    pub const TEX4          : RenderModeFlags = 1 << 8;
+    pub const TEX5          : RenderModeFlags = 1 << 9;
+    pub const TEX6          : RenderModeFlags = 1 << 10;
+    pub const TEX7          : RenderModeFlags = 1 << 11;
+    pub const TOON          : RenderModeFlags = 1 << 12;
+    pub const ALPHA_MAT     : RenderModeFlags = 1 << 13;
+    pub const ALPHA_VTX     : RenderModeFlags = 2 << 13;
+    pub const ALPHA_BOTH    : RenderModeFlags = 3 << 13;
+    pub const ZOFST         : RenderModeFlags = 1 << 24;
+    pub const EFFECT        : RenderModeFlags = 1 << 25;
+    pub const SHADOW        : RenderModeFlags = 1 << 26;
+    pub const ZMODE_ALWAYS  : RenderModeFlags = 1 << 27;
+    pub const DF_ALL        : RenderModeFlags = 1 << 28;
+    pub const NO_ZUPDATE    : RenderModeFlags = 1 << 29;
+    pub const XLU           : RenderModeFlags = 1 << 30;
+    pub const USER          : RenderModeFlags = 1 << 31;
+}
+
 impl<'a> MOBJ<'a> {
     pub fn new(hsd_struct: HSDStruct<'a>) -> Self {
         Self {
@@ -269,7 +298,7 @@ impl<'a> MOBJ<'a> {
         }
     }
 
-    pub fn flags(&self) -> u32 {
+    pub fn flags(&self) -> RenderModeFlags {
         self.hsd_struct.get_u32(0x04)
     }
 

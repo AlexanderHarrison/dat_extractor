@@ -1,32 +1,22 @@
 use dat_tools::isoparser::ISODatFiles;
-//use dat_tools::dat::PrimitiveType;
+use dat_tools::dat::*;
 //
-//use slp_parser::CharacterColour;
+use slp_parser::*;
 //use glam::f32::Vec4;
 //use glam::Vec4Swizzles;
 
 fn main() {
     let file = std::fs::File::open("/home/alex/melee/melee_vanilla.iso").unwrap();
     let mut files = ISODatFiles::new(file).unwrap();
-    
-    let dat = files.read_file("EfFxData.dat").unwrap();
-    let hsd_ef_dat = dat_tools::dat::HSDRawFile::new(&dat);
-    let table = dat_tools::dat::EffectTable::new(hsd_ef_dat.roots[0].hsd_struct.clone());
-    let anims = table.joint_anim(0).unwrap();
 
-    println!("bones: {}", table.model(0).unwrap().bones.len());
-
-    for transform in anims.transforms.iter() {
-        for track in transform.tracks.iter() {
-            println!("{:?}", track.track_type);
-        }
-    }
-
-    //let c = CharacterColour::Peach(slp_parser::character_colours::PeachColour::Green);
-    //let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
+    let c = Character::Peach.neutral();
+    let mut data = dat_tools::get_fighter_data(&mut files, c).unwrap();
 
     //for anim in data.animations.iter() {
-    //    println!("{}", dat_tools::dat::demangle_anim_name(&*anim.name).unwrap());
+    //    println!(
+    //        "{}\t{:032x}", 
+    //        dat_tools::dat::demangle_anim_name(&*anim.name).unwrap()m
+    //    );
     //    //if anim.name == "PlyFox5K_Share_ACTION_Appeal_figatree" {
     //    //if &*anim.name == "PlyFox5K_Share_ACTION_SpecialAirNLoop_figatree" {
     //    //    data.skeleton.apply_animation(10.0, &anim);

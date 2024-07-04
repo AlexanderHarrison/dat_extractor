@@ -3,6 +3,7 @@ use crate::dat::{
     HSDRawFile, Animation, extract_anim_from_action, extract_character_model,
 };
 use crate::parse_string;
+use slp_parser::Character;
 
 #[derive(Debug, Clone)]
 pub struct FighterData {
@@ -10,8 +11,11 @@ pub struct FighterData {
     pub model: Model,
 
     pub attributes: FighterAttributes,
+    pub specific_attributes: FighterSpecificAttributes,
     pub articles: Box<[Article]>,
     pub action_table: Box<[FighterAction]>,
+
+    pub ecb_bones: [u16; 6],
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +31,109 @@ pub struct FighterAttributes {
     pub shield_bone: u16,
     pub item_hold_bone: u16,
     pub shield_size: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SwordTrailInfo {
+    pub colour_1_rgba: [u8; 4],
+    pub colour_2_rgba: [u8; 4],
+    pub bone: u32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl SwordTrailInfo {
+    pub fn parse(bytes: &[u8]) -> Self {
+        SwordTrailInfo {
+            // alpha stored reverse for some reason
+            colour_1_rgba: [ bytes[2], bytes[3], bytes[4], 255 - bytes[1] ],
+            colour_2_rgba: [ bytes[6], bytes[7], bytes[8], 255 - bytes[5] ],
+            bone: u32::from_be_bytes(bytes[12..16].try_into().unwrap()),
+            width: f32::from_be_bytes(bytes[16..20].try_into().unwrap()),
+            height: f32::from_be_bytes(bytes[20..24].try_into().unwrap()),
+        }
+    }
+}
+
+// https://drive.google.com/drive/folders/1iNdlRJe8hHq4Ew1IPOf9Ad0E4_MTrGwr
+#[derive(Copy, Debug, Clone)]
+pub enum FighterSpecificAttributes {
+    Mario          {},
+    Fox            {},
+    CaptainFalcon  {},
+    DonkeyKong     {},
+    Kirby          {},
+    Bowser         {},
+    Link           {
+        sword_trail: SwordTrailInfo,
+    },
+    Sheik          {},
+    Ness           {},
+    Peach          {},
+    IceClimbers    {},
+    Pikachu        {},
+    Samus          {},
+    Yoshi          {},
+    Jigglypuff     {},
+    Mewtwo         {},
+    Luigi          {},
+    Marth          {
+        sword_trail: SwordTrailInfo,
+    },
+    Zelda          {},
+    YoungLink      {
+        sword_trail: SwordTrailInfo,
+    },
+    DrMario        {},
+    Falco          {},
+    Pichu          {},
+    MrGameAndWatch {},
+    Ganondorf      {},
+    Roy            {
+        sword_trail: SwordTrailInfo,
+    },
+}
+
+impl FighterSpecificAttributes {
+    pub fn parse(attribute_data: &[u8], ch: Character) -> Self {
+        match ch {
+            Character::Mario          => FighterSpecificAttributes::Mario          {},
+            Character::Fox            => FighterSpecificAttributes::Fox            {},
+            Character::CaptainFalcon  => FighterSpecificAttributes::CaptainFalcon  {},
+            Character::DonkeyKong     => FighterSpecificAttributes::DonkeyKong     {},
+            Character::Kirby          => FighterSpecificAttributes::Kirby          {},
+            Character::Bowser         => FighterSpecificAttributes::Bowser         {},
+            Character::Link           => FighterSpecificAttributes::Link           {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x006C..0x0084]),
+            },
+            Character::Sheik          => FighterSpecificAttributes::Sheik          {},
+            Character::Ness           => FighterSpecificAttributes::Ness           {},
+            Character::Peach          => FighterSpecificAttributes::Peach          {},
+            Character::Nana 
+                | Character::Popo     => FighterSpecificAttributes::IceClimbers    {},
+            Character::Pikachu        => FighterSpecificAttributes::Pikachu        {},
+            Character::Samus          => FighterSpecificAttributes::Samus          {},
+            Character::Yoshi          => FighterSpecificAttributes::Yoshi          {},
+            Character::Jigglypuff     => FighterSpecificAttributes::Jigglypuff     {},
+            Character::Mewtwo         => FighterSpecificAttributes::Mewtwo         {},
+            Character::Luigi          => FighterSpecificAttributes::Luigi          {},
+            Character::Marth          => FighterSpecificAttributes::Marth          {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x0080..0x0098]),
+            },
+            Character::Zelda          => FighterSpecificAttributes::Zelda          {},
+            Character::YoungLink      => FighterSpecificAttributes::YoungLink      {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x006C..0x0084]),
+            },
+            Character::DrMario        => FighterSpecificAttributes::DrMario        {},
+            Character::Falco          => FighterSpecificAttributes::Falco          {},
+            Character::Pichu          => FighterSpecificAttributes::Pichu          {},
+            Character::MrGameAndWatch => FighterSpecificAttributes::MrGameAndWatch {},
+            Character::Ganondorf      => FighterSpecificAttributes::Ganondorf      {},
+            Character::Roy            => FighterSpecificAttributes::Roy            {
+                sword_trail: SwordTrailInfo::parse(&attribute_data[0x0080..0x0098]),
+            },
+        }
+    }
 }
 
 // SBM_FighterData.cs
@@ -49,6 +156,19 @@ impl<'a> FighterDataRoot<'a> {
         Self { hsd_struct }
     }
 
+    pub fn ecb_bones(&self) -> [u16; 6] {
+        // SBM_EnvironmentCollision
+        let env = self.hsd_struct.get_reference(0x44);
+        [
+            env.get_u16(0x0),
+            env.get_u16(0x2),
+            env.get_u16(0x4),
+            env.get_u16(0x6),
+            env.get_u16(0x8),
+            env.get_u16(0xA),
+        ]
+    }
+
     pub fn attributes(&self) -> FighterAttributes {
         // SBM_CommonFighterAttributes.cs
         let common_attributes = self.hsd_struct.get_reference(0x00);
@@ -61,6 +181,10 @@ impl<'a> FighterDataRoot<'a> {
             shield_bone: player_model_lookup_table.get_u8(0x11) as u16,
             shield_size: common_attributes.get_f32(0x090),
         }
+    }
+
+    pub fn specific_attributes(&self, c: Character) -> FighterSpecificAttributes {
+        FighterSpecificAttributes::parse(self.hsd_struct.get_buffer(0x04), c)
     }
 
     pub fn articles(&self) -> Option<Box<[Article]>> {
@@ -164,7 +288,12 @@ impl<'a> FighterDataRoot<'a> {
 
 /// None if not a fighter dat file.
 /// Filename should be "PlFx.dat" or the like.
-pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: &DatFile) -> Option<FighterData> {
+pub fn parse_fighter_data(
+    fighter_dat: &DatFile, 
+    anim_dat: &DatFile, 
+    model_dat: &DatFile,
+    character: Character,
+) -> Option<FighterData> {
     let fighter_hsdfile = HSDRawFile::new(fighter_dat);
 
     let fighter_root_node = &fighter_hsdfile.roots[0];
@@ -175,6 +304,8 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
 
     let fighter_data_root = FighterDataRoot::new(fighter_root_node.hsd_struct.clone());
     let attributes = fighter_data_root.attributes();
+    let specific_attributes = fighter_data_root.specific_attributes(character);
+    let ecb_bones = fighter_data_root.ecb_bones();
     let action_table = parse_actions(anim_dat, &fighter_hsdfile)?;
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
@@ -184,17 +315,20 @@ pub fn parse_fighter_data(fighter_dat: &DatFile, anim_dat: &DatFile, model_dat: 
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
         model,
         attributes,
+        specific_attributes,
         articles,
         action_table,
+        ecb_bones,
     })
 }
 
-pub struct ModelBoneIndicies {
+#[derive(Clone, Debug)]
+pub struct ModelBoneIndices {
     pub groups: Box<[(u16, u16)]>, // turned into model groups
-    pub indicies: Box<[u8]>,
+    pub indices: Box<[u8]>,
 }
 
-pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBoneIndicies {
+pub fn get_high_poly_bone_indices<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBoneIndices {
     let fighter_root = &fighter_hsd.roots[0];
 
     // SBM_PlayerModelLookupTables
@@ -202,22 +336,22 @@ pub fn get_high_poly_bone_indicies<'a>(fighter_hsd: &HSDRawFile<'a>) -> ModelBon
 
     let costume_table = lookup_tables.get_array(0x10, 0x04).next().unwrap();
 
-    let mut indicies = Vec::with_capacity(64);
+    let mut indices = Vec::with_capacity(64);
     let mut groups = Vec::with_capacity(8);
     for high_poly_table in costume_table.get_array(0x08, 0x00) {
         if let Some(jobj_table_iter) = high_poly_table.try_get_array(0x08, 0x04) {
             for jobj_table in jobj_table_iter {
                 let count = jobj_table.get_i32(0x00) as usize;
                 let new = &jobj_table.get_buffer(0x04)[..count];
-                groups.push((indicies.len() as u16, new.len() as u16));
-                indicies.extend_from_slice(new);
+                groups.push((indices.len() as u16, new.len() as u16));
+                indices.extend_from_slice(new);
             }
         }
     }
 
-    ModelBoneIndicies {
+    ModelBoneIndices {
         groups: groups.into_boxed_slice(),
-        indicies: indicies.into_boxed_slice(),
+        indices: indices.into_boxed_slice(),
     }
 }
 
@@ -243,6 +377,20 @@ fn parse_fighter_action(anim_dat: &DatFile, hsd_struct: HSDStruct) -> FighterAct
         .and_then(|s| Some(parse_string(s)?.to_string().into_boxed_str()));
 
     let animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
+    //let mut animation = None;
+    //if name.as_deref().map(|n| n.contains("Wait1")) == Some(true) {
+    //if name.as_deref().map(|n| n.contains("AttackHi3")) == Some(true) {
+    //    animation = extract_anim_from_action(anim_dat, hsd_struct.clone());
+    //    //for b in animation.as_mut().unwrap().bone_transforms.iter_mut() {
+    //    //    if b.bone_index == 20 {
+    //    //        b.tracks[0].keys[0].value = 0.0;
+    //    //        for track in b.tracks.iter_mut() {
+    //    //            println!("{:?}", track);
+    //    //        }
+    //    //    }
+    //    //}
+    //}
+
     let subactions = hsd_struct
         .try_get_reference(0x0C)
         .map(|sub| {

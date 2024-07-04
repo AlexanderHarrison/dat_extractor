@@ -1,19 +1,15 @@
 use crate::dat::{
-    HSDStruct, HSDRawFile, JOBJ, ModelBoneIndicies, DatExtractError, 
+    HSDStruct, HSDRawFile, JOBJ, ModelBoneIndices, DatExtractError, 
     textures::{try_decode_texture, Texture},
-    Animation, parse_joint_anim, parse_mat_anim, Phong
+    Animation, parse_joint_anim, parse_mat_anim, Phong, RenderModeFlags
 };
 use glam::f32::{Mat4, Vec3, Vec4, Vec2};
-use glam::u32::UVec4;
 
 use std::collections::HashMap;
 
 #[derive(Copy, Clone, Default, Debug)]
 pub struct Bone {
     pub parent: Option<u16>,
-    pub child_start: u16,
-    pub child_len: u16, // zero if none
-
     pub pgroup_start: u16,
     pub pgroup_len: u16, // zero if none
 }
@@ -25,6 +21,7 @@ pub struct PrimitiveGroup {
     pub indices_start: u16,
     pub indices_len: u16,
     pub model_group_idx: u8,
+    pub mobj_render_flags: RenderModeFlags,
 }
 
 #[derive(Copy, Clone, Default, Debug)]
@@ -44,25 +41,84 @@ pub enum PrimitiveType {
     Quads = 0x80
 }
 
+/// I hate messing with wgsl <-> rust alignment
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Vertex {
-    pub pos: Vec3,
-    pub uv: Vec2,
-    pub normal: Vec3,
-    pub weights: Vec4,
-    pub bones: UVec4,
-    pub colour: Vec4,
+    // pos: [f32; 3]
+    // uv: [f32; 2]
+    // normal: [f32; 3]
+    // weights: [f32; 6]
+    // bones: [u32; 6]
+    // colour: [f32; 4]
+    pub raw: [u8; Vertex::NUM_BYTES],
 }
+
 impl Vertex {
+    // 24 * 4 bytes
+    const NUM_BYTES: usize = (3+2+3+6+6+4) * 4;
+
     pub const ZERO: Vertex = Vertex {
-        pos: Vec3::ZERO,
-        uv: Vec2::ZERO,
-        normal: Vec3::ZERO,
-        weights: Vec4::ZERO,
-        bones: UVec4::ZERO,
-        colour: Vec4::ZERO,
+        raw: [0u8; Vertex::NUM_BYTES],
     };
+
+    pub fn from_parts(
+        pos: [f32; 3],
+        uv: [f32; 2],
+        normal: [f32; 3],
+        weights: [f32; 6],
+        bones: [u32; 6],
+        colour: [f32; 4],
+    ) -> Self {
+        let mut raw = [0u8; Vertex::NUM_BYTES];
+        raw[0*4..3*4].copy_from_slice(bytemuck::cast_slice(&pos));
+        raw[3*4..5*4].copy_from_slice(bytemuck::cast_slice(&uv));
+        raw[5*4..8*4].copy_from_slice(bytemuck::cast_slice(&normal));
+        raw[8*4..14*4].copy_from_slice(bytemuck::cast_slice(&weights));
+        raw[14*4..20*4].copy_from_slice(bytemuck::cast_slice(&bones));
+        raw[20*4..24*4].copy_from_slice(bytemuck::cast_slice(&colour));
+        Vertex { raw }
+    }
+
+    #[inline(always)]
+    fn f32_i(self, i: usize) -> f32 {
+        return f32::from_ne_bytes(self.raw[i*4..i*4+4].try_into().unwrap());
+    }
+
+    #[inline(always)]
+    fn u32_i(self, i: usize) -> u32 {
+        return u32::from_ne_bytes(self.raw[i*4..i*4+4].try_into().unwrap());
+    }
+
+    pub fn pos(self) -> Vec3 {
+        Vec3::new(self.f32_i(0), self.f32_i(1), self.f32_i(2))
+    }
+
+    pub fn uv(self) -> Vec2 {
+        Vec2::new(self.f32_i(3), self.f32_i(4))
+    }
+
+    pub fn normal(self) -> Vec3 {
+        Vec3::new(self.f32_i(5), self.f32_i(6), self.f32_i(7))
+    }
+
+    pub fn weights(self) -> [f32; 6] {
+        [
+            self.f32_i(8), self.f32_i(9), self.f32_i(10),
+            self.f32_i(11), self.f32_i(12), self.f32_i(13),
+        ]
+    }
+
+    pub fn bones(self) -> [u32; 6] {
+        [
+            self.u32_i(14), self.u32_i(15), self.u32_i(16),
+            self.u32_i(17), self.u32_i(18), self.u32_i(19),
+        ]
+    }
+    
+    pub fn colour(self) -> Vec4 {
+        Vec4::new(self.f32_i(20), self.f32_i(21), self.f32_i(22), self.f32_i(24))
+    }
 }
 
 unsafe impl bytemuck::NoUninit for Vertex {}
@@ -77,7 +133,6 @@ pub struct MeshBuilder {
 pub struct Model {
     // one for each bone
     pub bones: Box<[Bone]>,
-    pub bone_child_idx: Box<[u16]>,
     pub base_transforms: Box<[Mat4]>,
     pub inv_world_transforms: Box<[Mat4]>,
 
@@ -98,53 +153,43 @@ pub fn extract_character_model<'a>(
         .find_map(|root| JOBJ::try_from_root_node(root))
         .ok_or(DatExtractError::InvalidDatFile)?;
 
-    let high_poly_bone_indicies = super::get_high_poly_bone_indicies(parsed_fighter_dat);
-    extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indicies))
+    let high_poly_bone_indices = super::get_high_poly_bone_indices(parsed_fighter_dat);
+    extract_model_from_jobj(root_jobj, Some(&high_poly_bone_indices))
 }
 
 pub fn extract_model_from_jobj<'a>(
     root_jobj: JOBJ<'a>, 
-    high_poly_bone_indicies: Option<&ModelBoneIndicies> // extracts all if None
+    high_poly_bone_indices: Option<&ModelBoneIndices> // extracts all if None
 ) -> Result<Model, DatExtractError> {
     let mut bones = Vec::with_capacity(128);
-    let mut bone_child_idx = Vec::with_capacity(256);
     let mut bone_jobjs = Vec::with_capacity(128);
 
     // set child + parent idx --------------------------------------------------------
     fn set_bone_idx<'a, 'b>(
         bone_jobjs: &'a mut Vec<JOBJ<'b>>, 
-        bone_child_idx: &'a mut Vec<u16>, 
         bones: &'a mut Vec<Bone>, 
         parent: Option<u16>,
         jobj: JOBJ<'b>
-    ) -> u16 {
-        bone_jobjs.push(jobj.clone());
+    ) {
         let bone_idx = bones.len() as _;
+        bone_jobjs.push(jobj.clone());
         bones.push(Bone::default());
 
-        let child_start = bone_child_idx.len() as _;
-        let mut child_len = 0;
-
         for child_jobj in jobj.children() {
-            child_len += 1;
-            let child_idx = set_bone_idx(bone_jobjs, bone_child_idx, bones, Some(bone_idx), child_jobj);
-            bone_child_idx.push(child_idx)
+            set_bone_idx(bone_jobjs, bones, Some(bone_idx), child_jobj);
         }
 
         bones[bone_idx as usize] = Bone {
             parent,
-            child_start,
-            child_len,
 
-            // are set later
+            // set later
             pgroup_start: 0,
             pgroup_len: 0,
         };
-        bone_idx
     }
 
     for jobj in root_jobj.siblings() {
-        set_bone_idx(&mut bone_jobjs, &mut bone_child_idx, &mut bones, None, jobj);
+        set_bone_idx(&mut bone_jobjs, &mut bones, None, jobj);
     }
 
     // get meshes / primitives / vertices ------------------------------------------------------
@@ -170,10 +215,10 @@ pub fn extract_model_from_jobj<'a>(
         if let Some(dobj) = jobj.get_dobj() {
             for dobj in dobj.siblings() {
                 // hack to skip low poly mesh
-                let model_group_idx = match high_poly_bone_indicies {
+                let model_group_idx = match high_poly_bone_indices {
                     None => 0,
-                    Some(ref high_poly_bone_indicies) => {
-                        let dobj_idx_idx = match high_poly_bone_indicies.indicies.iter()
+                    Some(ref high_poly_bone_indices) => {
+                        let dobj_idx_idx = match high_poly_bone_indices.indices.iter()
                             .copied()
                             .position(|idx| idx == dobj_idx)
                         {
@@ -185,7 +230,7 @@ pub fn extract_model_from_jobj<'a>(
                         };
 
                         let mut model_group_idx = None;
-                        for (i, group) in high_poly_bone_indicies.groups.iter().enumerate() {
+                        for (i, group) in high_poly_bone_indices.groups.iter().enumerate() {
                             let range = (group.0)..(group.0 + group.1);
                             if range.contains(&dobj_idx_idx) {
                                 model_group_idx = Some(i);
@@ -207,8 +252,9 @@ pub fn extract_model_from_jobj<'a>(
                     }
                 }
 
-                let phong = dobj.get_mobj().map(|m| m.get_phong()).unwrap_or(Phong::default());
-
+                let (phong, mobj_render_flags) = dobj.get_mobj()
+                    .map(|m| (m.get_phong(), m.flags()))
+                    .unwrap_or((Phong::default(), 0));
                 let texture_idx = try_decode_texture(&mut texture_cache, &mut textures, dobj);
 
                 let indices_len = builder.indices.len() as u16 - indices_start;
@@ -218,6 +264,7 @@ pub fn extract_model_from_jobj<'a>(
                     texture_idx,
                     indices_start,
                     indices_len,
+                    mobj_render_flags,
                 });
                 phongs.push(phong);
             }
@@ -254,7 +301,6 @@ pub fn extract_model_from_jobj<'a>(
     // construct model ------------------------------------------------
     let model = Model {
         bones: bones.into_boxed_slice(),
-        bone_child_idx: bone_child_idx.into_boxed_slice(),
         base_transforms: base_transforms.into_boxed_slice(),
         phongs: phongs.into_boxed_slice(),
         inv_world_transforms: inv_world_transforms.into_boxed_slice(),
