@@ -192,7 +192,7 @@ impl Into<io::Error> for ISOParseError {
 
 impl std::ops::Drop for ISODatFiles {
     fn drop(&mut self) {
-        self.iso.sync_all().unwrap();
+        let _ = self.iso.sync_all(); // sometimes permission error on windows???
         self.iso.flush().unwrap();
     }
 }
