@@ -66,8 +66,9 @@ fn main() {
     let iso = std::fs::OpenOptions::new()
         .read(true).write(true)
         //.open("/run/media/alex/ALEX_H/games/TM balance/game.iso")
-        .open("/Windows/Users/Alex/My Documents/Melee/balance/balance.iso")
+        //.open("/Windows/Users/Alex/My Documents/Melee/balance/balance.iso")
         //.open("/home/alex/melee/tm_balance.iso")
+        .open("/home/alex/melee/melee_balance.iso")
         .unwrap();
     let mut files = ISODatFiles::new(iso).unwrap();
     files.write_file(character_animation_filename(character), new_data).unwrap();
