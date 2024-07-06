@@ -381,6 +381,7 @@ pub fn extract_anim_from_action(
 
 pub fn effective_frame(frame_num: f32, flags: AOBJFlags, end_frame: f32) -> f32 {
     if end_frame <= 0.0 { return frame_num; }
+    //if end_frame == 0.0 { return frame_num; }
 
     let mut effective_frame = frame_num;
     let rewound = flags & aobj_flags::REWOUND != 0;

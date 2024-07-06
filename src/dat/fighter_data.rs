@@ -28,8 +28,12 @@ pub struct FighterAction {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FighterAttributes {
-    pub shield_bone: u16,
-    pub item_hold_bone: u16,
+    pub shield_bone: u8,
+    pub item_hold_bone: u8,
+    pub top_of_head_bone: u8,
+    pub left_foot_bone: u8,
+    pub right_foot_bone: u8,
+
     pub shield_size: f32,
 }
 
@@ -142,13 +146,19 @@ pub struct FighterDataRoot<'a> {
     pub hsd_struct: HSDStruct<'a>
 }
 
+#[derive(Debug, Clone)]
+pub struct PerStateData {
+    pub animation: Animation,
+    pub subaction_data: Option<Box<[u8]>>,
+}
+
 // SBM_ArticlePointer.cs (SBM_Article)
 #[derive(Debug, Clone)]
 pub struct Article {
     pub model: Option<Model>,
     pub bone: Option<u32>,
     pub scale: f32,
-    pub animations: Option<Box<[Animation]>>,
+    pub per_state_data: Option<Box<[PerStateData]>>,
 }
 
 impl<'a> FighterDataRoot<'a> {
@@ -177,8 +187,11 @@ impl<'a> FighterDataRoot<'a> {
         let player_model_lookup_table = self.hsd_struct.get_reference(0x08);
 
         FighterAttributes {
-            item_hold_bone: player_model_lookup_table.get_u8(0x10) as u16,
-            shield_bone: player_model_lookup_table.get_u8(0x11) as u16,
+            item_hold_bone: player_model_lookup_table.get_u8(0x10),
+            shield_bone: player_model_lookup_table.get_u8(0x11),
+            top_of_head_bone: player_model_lookup_table.get_u8(0x12),
+            left_foot_bone: player_model_lookup_table.get_u8(0x13),
+            right_foot_bone: player_model_lookup_table.get_u8(0x14),
             shield_size: common_attributes.get_f32(0x090),
         }
     }
@@ -226,60 +239,49 @@ impl<'a> FighterDataRoot<'a> {
                     // 0x0C usually zero
                 }
 
-                let mut animations = None;
+                let per_state_data = match article.try_get_reference(0x0C) {
+                    Some(item_states) => {
+                        let count = item_states.len() / 0x10;
+                        let mut state_data_vec = Vec::with_capacity(count);
 
-                if let Some(item_states) = article.try_get_reference(0x0C) {
-                    let count = item_states.len() / 0x10;
-                    let mut anim_vec = Vec::with_capacity(count);
+                        for i in 0..count {
+                            // Melee/Pl/SBM_ArticlePointer.cs (SBM_ItemState)
+                            let item_state = item_states.get_embedded_struct(i * 0x10, 0x10);
 
-                    for i in 0..count {
-                        // Melee/Pl/SBM_ArticlePointer.cs (SBM_ItemState)
-                        let item_state = item_states.get_embedded_struct(i * 0x10, 0x10);
+                            let mut anim = Animation::default();
 
-                        if let Some(_) = item_state.try_get_reference(0x04) {
-                            println!("unused mat anim");
+                            if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
+                                parse_joint_anim(&mut anim, joint_anim_joint);
+                            }
+
+                            if let Some(mat_anim_joint) = item_state.try_get_reference(0x04) {
+                                parse_mat_anim(&mut anim, mat_anim_joint);
+                            }
+
+                            let subaction_data = match article.try_get_reference(0x0C) {
+                                Some(subaction_data) => Some(subaction_data.data.to_vec().into_boxed_slice()),
+                                None => None,
+                            };
+
+                            state_data_vec.push(PerStateData {
+                                animation: anim,
+                                subaction_data,
+                            });
                         }
 
-                        let mut anim = Animation::default();
-
-                        if let Some(joint_anim_joint) = item_state.try_get_reference(0x00) {
-                            parse_joint_anim(&mut anim, joint_anim_joint);
-                        }
-
-                        if let Some(mat_anim_joint) = item_state.try_get_reference(0x04) {
-                            parse_mat_anim(&mut anim, mat_anim_joint);
-                        }
-
-                        anim_vec.push(anim);
+                        Some(state_data_vec.into_boxed_slice())
                     }
+                    None => None,
+                };
 
-                    animations = Some(anim_vec.into_boxed_slice());
-                }
-
-                //let mut images = Vec::new();
-
-                //// SBM_ArticlePointer.cs (SBM_ItemState)
-                //if let Some(item_state_array) = article.try_get_reference(0x0C) {
-                //    for offset in (0..item_state_array.len()).step_by(0x10) {
-                //        //if let Some(anim_joint) = item_state_array.try_get_reference(offset + 0x00) {
-                //        //    crate::dat::extract_anim_joint_models(&mut models, anim_joint);
-                //        //    println!("good try 1");
-                //        //}
-
-                //        if let Some(mat_anim_joint) = item_state_array.try_get_reference(offset + 0x04) {
-                //            crate::dat::extract_mat_anim_joint_textures(&mut images, mat_anim_joint);
-                //        }
-                //    }
-                //}
-
-                articles.push(Article { model, scale, animations, bone });
+                articles.push(Article { model, scale, per_state_data, bone });
             } else {
                 unused_articles += 1
             }
         }
 
         if unused_articles != 0 {
-            println!("{} unused articles", unused_articles);
+            eprintln!("{} unused articles", unused_articles);
         }
 
         Some(articles.into_boxed_slice())
@@ -949,7 +951,7 @@ pub fn subaction_size(subaction_cmd: u8) -> usize {
     (packed_len >> shift) & 0b1111
 }
 
-/// 1 nibble per subaction.
+/// 4 bits per subaction.
 /// gives number of 32 bit segments in subaction.
 pub static SUBACTION_SIZE: &'static [u8] = &[
     0x11,
