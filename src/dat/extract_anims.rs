@@ -90,6 +90,13 @@ impl AnimationFrame {
         self.transforms[1].w_axis.y = 0.0;
     }
 
+    pub fn remove_root_translation_2(&mut self) {
+        // Same as above, but removes from the third bone.
+        // Needed for Mewtwo for whatever reason.
+        self.transforms[2].w_axis.z = 0.0;
+        self.transforms[2].w_axis.y = 0.0;
+    }
+
     //pub fn obj(&self, model: &Model) {
     //    let mut i = 1;
     //    for (bone_idx, bone) in model.bones.iter().enumerate() {
