@@ -1106,7 +1106,7 @@ impl TrackType for TrackTypeTexture {
             18 => Tev0B,
             19 => Tev0A,
             _ => {
-                println!("skipping texture track {}", n);
+                //println!("skipping texture track {}", n);
                 return None;
             }
         })
