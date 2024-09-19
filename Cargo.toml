@@ -9,12 +9,10 @@ debug = true
 opt-level = 2
 
 [dependencies]
-lazy_static = "1.4"
-#utils = { path = "../utils" }
-glam = "0.27"
+glam = { version = "0.29", features = ["bytemuck"] }
 slp_parser = { path = "../slippi_situation_parser" }
 ahash = "0.8"
-bytemuck = "1.15"
+bytemuck = { version = "1.18", features = ["extern_crate_alloc"] }
 bumpalo = "3.16"
 
 [dev-dependencies]
