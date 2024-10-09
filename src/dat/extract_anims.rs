@@ -47,9 +47,10 @@ impl AnimationFrame {
     pub fn apply_animation(&mut self, model: &Model, anim: &Animation, frame: f32) {
         for transform in anim.bone_transforms.iter() {
             let bone_index = transform.bone_index;
-            let base_transform = &model.base_transforms[bone_index];
-            let f = transform.compute_transform_at(frame, base_transform);
-            self.transforms[bone_index] = f.transform;
+            if let Some(base_transform) = model.base_transforms.get(bone_index) {
+                let f = transform.compute_transform_at(frame, base_transform);
+                self.transforms[bone_index] = f.transform;
+            }
         }
 
         for transform in anim.material_transforms.iter() {
