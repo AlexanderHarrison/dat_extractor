@@ -117,7 +117,7 @@ impl Vertex {
     }
     
     pub fn colour(self) -> Vec4 {
-        Vec4::new(self.f32_i(20), self.f32_i(21), self.f32_i(22), self.f32_i(24))
+        Vec4::new(self.f32_i(20), self.f32_i(21), self.f32_i(22), self.f32_i(23))
     }
 }
 
