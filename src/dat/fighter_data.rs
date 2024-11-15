@@ -18,7 +18,7 @@ pub struct FighterData {
     pub ecb_bones: [u16; 6],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct FighterAction {
     pub name: Option<Box<str>>,
     pub animation: Option<Animation>,
