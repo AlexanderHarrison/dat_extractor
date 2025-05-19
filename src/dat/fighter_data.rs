@@ -549,7 +549,9 @@ pub enum Subaction {
         interact_type: bool,
         can_interact: bool,
     },
-    RemoveHitbox,
+    RemoveHitbox {
+        hitbox_id: u8
+    },
     ClearHitboxes,
     SoundEffect {
         unknown_1: u32,
@@ -785,7 +787,9 @@ pub fn parse_next_subaction(data: &[u32]) -> Subaction {
             interact_type                  : (data[0] >> 1) & 0x01 == 1,
             can_interact                   : (data[0] >> 0) & 0x01 == 1,
         },
-        0x0F => RemoveHitbox,
+        0x0F => RemoveHitbox {
+            hitbox_id                      : ((data[0] >> 23) & 0x07) as u8, // IDK IF THIS IS RIGHT JUST A GUESS FOR NOW
+        },
         0x10 => ClearHitboxes,
         0x11 => SoundEffect {
             // weirdness... unknown bytes wrap? dunno what's happening
