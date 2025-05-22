@@ -2,6 +2,7 @@ use crate::dat::{
     HSDStruct, DatFile, Model, JOBJ, extract_model_from_jobj, parse_joint_anim, parse_mat_anim,
     HSDRawFile, Animation, extract_anim_from_action, extract_character_model,
 };
+use glam::Vec3;
 use crate::parse_string;
 use slp_parser::Character;
 
@@ -14,8 +15,25 @@ pub struct FighterData {
     pub specific_attributes: FighterSpecificAttributes,
     pub articles: Box<[Article]>,
     pub action_table: Box<[FighterAction]>,
+    pub hurtboxes: Box<[Hurtbox]>,
 
     pub ecb_bones: [u16; 6],
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum HurtboxPosition {
+    Low, Mid, High
+}
+
+#[derive(Debug, Clone)]
+pub struct Hurtbox {
+    pub bone: u8,
+    pub position: HurtboxPosition, 
+    pub grabbable: bool,
+    pub size: f32,
+    pub offset_1: Vec3,
+    pub offset_2: Vec3,
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +217,44 @@ impl<'a> FighterDataRoot<'a> {
     pub fn specific_attributes(&self, c: Character) -> FighterSpecificAttributes {
         FighterSpecificAttributes::parse(self.hsd_struct.get_buffer(0x04), c)
     }
+    
+    pub fn hurtboxes(&self) -> Box<[Hurtbox]> {
+        let bank = self.hsd_struct.get_reference(0x30);
+        let count = bank.get_u32(0x0) as usize;
+        let data = bank.get_reference(0x4);
+        
+        let mut hurtboxes = Vec::with_capacity(count);
+        for i in 0..count {
+            let offset = 0x28 * i;
+            hurtboxes.push(Hurtbox {
+                bone: data.get_i32(offset + 0x00) as u8,
+                position: match data.get_i32(offset + 0x04) {
+                    0 => HurtboxPosition::Low,
+                    1 => HurtboxPosition::Mid,
+                    2 => HurtboxPosition::High,
+                    p => panic!("invalid hurtbox type: {}", p)
+                },
+                grabbable: match data.get_i32(offset + 0x08) {
+                    0 => false,
+                    1 => true,
+                    p => panic!("invalid hurtbox grabbable flag: {}", p)
+                },
+                offset_1: Vec3 {
+                    x: data.get_f32(offset + 0x0C),
+                    y: data.get_f32(offset + 0x10),
+                    z: data.get_f32(offset + 0x14),
+                },
+                offset_2: Vec3 {
+                    x: data.get_f32(offset + 0x18),
+                    y: data.get_f32(offset + 0x1C),
+                    z: data.get_f32(offset + 0x20),
+                },
+                size: data.get_f32(offset + 0x24),
+            });
+        }
+        
+        hurtboxes.into_boxed_slice()
+    }
 
     pub fn articles(&self) -> Option<Box<[Article]>> {
         let article_ptrs = match self.hsd_struct.try_get_reference(0x48) {
@@ -312,6 +368,7 @@ pub fn parse_fighter_data(
     let parsed_model_dat = HSDRawFile::new(model_dat);
     let model = extract_character_model(&fighter_hsdfile, &parsed_model_dat).ok()?;
     let articles = fighter_data_root.articles()?;
+    let hurtboxes = fighter_data_root.hurtboxes();
 
     Some(FighterData {
         character_name: name.strip_prefix("ftData").unwrap().to_string().into_boxed_str(),
@@ -321,6 +378,7 @@ pub fn parse_fighter_data(
         articles,
         action_table,
         ecb_bones,
+        hurtboxes,
     })
 }
 
