@@ -389,9 +389,10 @@ pub fn extract_anim_from_action(
 
 pub fn effective_frame(frame_num: f32, flags: AOBJFlags, end_frame: f32) -> f32 {
     if end_frame <= 0.0 { return frame_num; }
-    //if end_frame == 0.0 { return frame_num; }
 
     let mut effective_frame = frame_num;
+    if effective_frame < 1.0 { effective_frame = 1.0; }
+    
     let rewound = flags & aobj_flags::REWOUND != 0;
     let loop_anim = flags & aobj_flags::LOOP != 0;
 
@@ -418,14 +419,45 @@ pub fn effective_frame(frame_num: f32, flags: AOBJFlags, end_frame: f32) -> f32 
             }
         }
     }
-
-    if effective_frame < 0.0 { effective_frame = 0.0; } // idk
-    effective_frame += 0.001; // avoid issues with exact frames (fox utilt)
     
     effective_frame
 }
 
 impl Animation {
+    pub fn debug_print(&self) {
+        println!("BONE TRANSFORMS: {}", self.bone_transforms.len());
+        for b in self.bone_transforms.iter() {
+            if b.tracks.len() == 0 { continue; }
+            
+            println!("  BONE: {}", b.bone_index);
+            println!("  END FRAME: {}", b.end_frame);
+            
+            let f = b.flags;
+            if f != 0 {
+                print!(  "  FLAGS    :");
+                use aobj_flags::*;
+                if f & REWOUND      != 0 { print!(" rewound,"); } 
+                if f & FIRST_PLAY   != 0 { print!(" first play,"); } 
+                if f & NO_UPDATE    != 0 { print!(" no update,"); } 
+                if f & LOOP         != 0 { print!(" loop,"); } 
+                if f & NO_ANIM      != 0 { print!(" no anim,"); }
+                println!();
+            }
+            
+            println!("  TRACKS: {}", b.tracks.len());
+            for t in b.tracks.iter() {
+                println!("    START FRAME: {}", t.start_frame);
+                println!("    TRACK TYPE: {:?}", t.track_type);
+                
+                print!("    KEYS:");
+                for k in t.keys.iter() {
+                    print!(" {},", k.frame);
+                }
+                println!();
+            }
+        } 
+    }
+
     // max end frame of all tracks
     pub fn end_frame(&self) -> f32 {
         let mut end_frame: f32 = 0.0;
@@ -777,7 +809,7 @@ pub fn decode_anim_data<T: TrackType>(track: TrackOrFOBJData<'_, T>) -> AnimTrac
             };
         }
     }
-
+    
     AnimTrack {
         start_frame: track.start_frame,
         keys: keys.into_boxed_slice(),
@@ -814,7 +846,7 @@ impl<T: TrackType> AnimTrack<T> {
 
         let left = self.binary_search_keys(frame);
         let right = left + 1;
-
+        
         if right >= self.keys.len() {
             return self.keys[left].value
         }
@@ -860,13 +892,18 @@ impl<T: TrackType> AnimTrack<T> {
     pub fn binary_search_keys(&self, frame: f32) -> usize {
         let mut lower: isize = 0;
         let mut upper: isize = self.keys.len() as isize - 1;
+        
+        // Some animations have consecutive key frames with the same frame.
+        // We need to use the second key frame, so we binary search with a little increase
+        // so that we always skip the first one.
+        // 
+        // e.x. fox utilt on frame 14
+        let frame = frame + 0.001;
 
         while lower <= upper {
             let middle = (upper + lower) / 2;
             let mid_usize = middle as usize;
-            if frame == self.keys[mid_usize].frame {
-                return mid_usize;
-            } else if frame < self.keys[mid_usize].frame {
+            if frame < self.keys[mid_usize].frame {
                 upper = middle - 1;
             } else {
                 lower = middle + 1;
