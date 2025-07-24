@@ -51,7 +51,6 @@ pub struct FighterAttributes {
     pub top_of_head_bone: u8,
     pub left_foot_bone: u8,
     pub right_foot_bone: u8,
-
     pub shield_size: f32,
 }
 

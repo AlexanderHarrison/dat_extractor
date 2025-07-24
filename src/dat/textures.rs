@@ -177,8 +177,8 @@ impl<'a> TOBJ<'a> {
         let wrap_u = WrapMode::from_u32(self.hsd_struct.get_u32(0x34));
         let wrap_v = WrapMode::from_u32(self.hsd_struct.get_u32(0x38));
 
-        let scale_x = self.hsd_struct.get_i8(0x3C) as f32;
-        let scale_y = self.hsd_struct.get_i8(0x3D) as f32;
+        let scale_x = self.hsd_struct.get_i8(0x3C) as f32 / self.hsd_struct.get_f32(0x1C);
+        let scale_y = self.hsd_struct.get_i8(0x3D) as f32 / self.hsd_struct.get_f32(0x20);
         let tlut_data = self.hsd_struct.try_get_reference(0x50)
             .map(TLUT::new);
 
